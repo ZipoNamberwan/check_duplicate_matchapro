@@ -175,6 +175,7 @@ class Business:
     address: str = ""
     project_id: str = ""  # Project ID (unique per row in Excel)
     source_row: int = 0  # Track which row in Excel this came from
+    iddesa: str = ""  # IDDESA identifier
     
     def __post_init__(self):
         # Normalize text fields
@@ -925,7 +926,8 @@ class ExcelDataManager:
                     business_type='excel',
                     address=str(row.get('alamat', '')),
                     project_id=str(row['idsbr']),  # Each row gets unique project_id
-                    source_row=idx
+                    source_row=idx,
+                    iddesa=str(row.get('iddesa', ''))
                 )
                 
                 businesses.append(business)
@@ -1101,6 +1103,8 @@ class NearbyBusinessFinder:
                                 validation_data.append({
                                     'idsbr_center': comparison.business_a.id,
                                     'idsbr_nearby': comparison.business_b.id,
+                                    'iddesa_center': comparison.business_a.iddesa,
+                                    'iddesa_nearby': comparison.business_b.iddesa,
                                     'nama_usaha_center': comparison.business_a.name,
                                     'nama_usaha_nearby': comparison.business_b.name,
                                     'pemilik_center': comparison.business_a.owner,
