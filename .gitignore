@@ -1,4 +1,5 @@
 source/*
 source_kdm/*
+source_gc_update/*
 result/*
 .env
