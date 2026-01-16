@@ -6,6 +6,7 @@ from pathlib import Path
 # Configuration
 EXCEL_FILE = Path('source_gc_update/gc.xlsx')
 BASE_URL = 'https://matchapro.web.bps.go.id'
+INITIAL_GC_TOKEN = 'JRIaYqdBn0OKXkSy0vWFfbez1VGvXycWBILg2gy3'  # Initial GC token for first request
 
 
 def transform_coordinates(latitude, longitude):
@@ -51,19 +52,18 @@ def get_business_id_by_idsbr(idsbr):
         idsbr: The IDSBR value to search for
         
     Returns:
-        Dictionary with perusahaan_id, latitude, longitude, latlong_status if found, None otherwise
+        Dictionary with perusahaan_id, latitude, longitude, latlong_status, gc_username if found, None otherwise
     """
     cookies = {
-        '_ga_K98R6MSKRH': 'GS2.1.s1768283730$o3$g0$t1768283730$j60$l0$h0',
-        '_ga': 'GA1.3.1178577724.1767583475',
-        '_ga_XXTTVXWHDB': 'GS2.3.s1768286968$o2$g0$t1768286983$j45$l0$h0',
+        '_ga': 'GA1.3.451362273.1753614616',
+        'cf_clearance': 'dGpYKScmzan70LrF36.U20WHMIKq1Wj576cTZOmd2.M-1754396822-1.2.1.1-EPp6pVOKOLonPCwEi0aRWlGcgf53JXZeG5wD1nob3Ca_Ho1dfrd.IO69mzanDsBOIY8x_EAdAECfs_PPK7OwnXCNDGcdfNHVpSPBihcOqa4mZOKBb7vIBZBQjTvAPP93nf00eqySWGtkoYFWpBLl4c1MhB8Z5XskX3G4NShRjyJQv6b7zxnWvoO1MGWvYS.73u6DZ6IgwYnoWh8KKrVbzYaZWru4KhB4Zfx7Pn_b2NY',
+        '_ga_XXTTVXWHDB': 'GS2.3.s1754410359$o3$g0$t1754410359$j60$l0$h0',
         'BIGipServeriapps_webhost_mars_443.app~iapps_webhost_mars_443_pool': '1418199050.20480.0000',
-        'TS018af012': '0167a1c86195f9e6113f15cda0f27acd06889f7687265062cb86097f5a4b1cbed6be85a03ab5f8dce26099dc651d5eb4f099d35463e7c794db13e9b3c070e346c6b3d6df85',
-        'f5avraaaaaaaaaaaaaaaa_session_': 'PCIDOHHCIABMCNAPMAENNFMKALBDGHEPACHNFIOEFINJGHPPHBBNJGGKFFBFFFNAPPIDDJNDKHNGLDAJNPJAEOBIPIPJBKAAKGAOLODDMKKLNDLGFNMPBFGFOGNIKMHN',
-        'XSRF-TOKEN': 'eyJpdiI6Ik84bkltTlZldFdkbXBhRlhKWmNMUkE9PSIsInZhbHVlIjoiaXJiQzl4QzYxdDVNYjMzcXgzL1B1WHJjZVkrVDkwdGE1WmdPOG1EK3dsSFk4NlZmenF6WHdxOWRXTjJXRFlWMjduSmptaEk5RUhuem44bFlOYWhtTE12dXV2T1FrTFhUV3loNGFvN01VSlZYMUlDNDUrY2w1OStyc25QcFJMRVkiLCJtYWMiOiJkYTFlY2VkMzlmNjU1NzUwNDNmNGQyMzIwM2E5MzcyNjk1OTA0ZWQxMGM5ODFhMTI4NzIxNjlkZGQwN2FlMjE5IiwidGFnIjoiIn0%3D',
-        'laravel_session': 'eyJpdiI6IlArbUUxNnF0RjJnR1BQQ0NnVkhVVGc9PSIsInZhbHVlIjoiMDlnMkI3NTk0ak9LekZWNlllYjhuelFvdDNjWnJUUW8wSWJ4bWhRbFR5STBqcHhEdCsybTZpNFlGaFM4Um0wWG5vN3hMcWVBK21rVkZGUFBrWEVxWjhoQ1ZkNzk2NkhlOXBpL3N4a1YyeHQ4VkV3OE14aTBkU1g3SWs3cFJWREciLCJtYWMiOiI1Nzg5ZGFmYjRmYzExZmRhMWVlNDU2NzcxMDdjMjgxYjcwMjY3NDJlODdlMjAxNTI4YTAwZWRiMWI5Zjg1YzYzIiwidGFnIjoiIn0%3D',
-        'TS0151fc2b': '0167a1c86118d45785fd31603fab161c6619d4bedf2466c608ef78ed187fcca638455497665181a619bd1ce01ea165dee053fb76bf',
-        'TS1a53eee7027': '0815dd1fcdab20008a2279bea573cf45d96709f9410736905970d09471e5359d58e67dc53e23e80508a5506749113000a277bdcccdddff1aa85dea369ddc0839e951d8f0a4152604d03bcb32585e4df0093c0c39fa629154a06431f2aa11386d',
+        'f5avraaaaaaaaaaaaaaaa_session_': 'NCBOEEOIOPHDLPHNHGMOABNNBNILCKCPMOOIOCIMHPJBJOCIAALIKFBOCNGKJHBENNLDJMNHMPCPHALIEEEAKBEMNOBENFEPPBJOECKAPFDGMOOAKOBFDDEDJNHJPMAM',
+        'TS0151fc2b': '0167a1c8617fc53c7c1282bff2f6a5dbe1ff1decc2098b903426a66a10f133e61654f911977934f5e35941b1980176040d4aa2fffa',
+        'XSRF-TOKEN': 'eyJpdiI6Ii9qUWpNSkJQY09XSGYyVUJiNkJWYlE9PSIsInZhbHVlIjoiNkFGWlZ6SGdWYnc2Zm5aeTVRaUFmODltQ1B2eEdMSlJnRys3bTc5Q2hPaGRVaFVWVmYvNzB6bC82cmhYMHpBbnFqTUNxQXRBT0txeWlVV1FlMmZubkxoeFowY1ovTGpFZHo3cGRJK2RjTm9qWnJGeEZIWHVPQkhobEljSzdBQXYiLCJtYWMiOiJkN2YzZGUxYTE3ZDdhYTEwNDM3MDNjZjMwYmEyMWZiMTRkMzJjODY5ZTZkMmMzOWFkZjBjN2UzZDkxNTY0MmMzIiwidGFnIjoiIn0%3D',
+        'laravel_session': 'eyJpdiI6IjF5YWFVNkw5WkFHVGVuaVRNZHFqcUE9PSIsInZhbHVlIjoieGREOFkybzlIZnRFRVV6bUpuTjI3M3JLT080RWlIVm9BSUdJV3RDeWhxb0tVdUFyZUYwSlByWStCK0FaWllnZjBSTmp6NUxiZWdxdTB6OGZwOVM1a3JEQ1dkS0RUWU9BdE5lR1dSWElvenRQVTdOQXBvd0VYYk12SUxLcUdrU1YiLCJtYWMiOiIxZjk4OWM2ZDZhZjMxOWUwM2U4Yjk5OGVjNzQ4ZDUwMGY3NzQxZmVhY2JiZWMyOGEyNmZhYzU0MzQ1ZDJiYWFmIiwidGFnIjoiIn0%3D',
+        'TS1a53eee7027': '0815dd1fcdab20001f28c692e7b65c8a46600d239d6b702860fdc30f60e97ac0c993eef29b9357de0827815cb41130001a5ec517101f1e1f8878e1808d97cb60f1aa76090aaf9703ca5d030baa67ea1f9a36200616ea90fb9edd6980a6bfb786',
     }
 
     headers = {
@@ -81,11 +81,11 @@ def get_business_id_by_idsbr(idsbr):
         'sec-ch-ua': '"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
         'sec-ch-ua-mobile': '?0',
         'sec-ch-ua-platform': '"Windows"',
-        # 'Cookie': '_ga_K98R6MSKRH=GS2.1.s1768283730$o3$g0$t1768283730$j60$l0$h0; _ga=GA1.3.1178577724.1767583475; _ga_XXTTVXWHDB=GS2.3.s1768286968$o2$g0$t1768286983$j45$l0$h0; BIGipServeriapps_webhost_mars_443.app~iapps_webhost_mars_443_pool=1418199050.20480.0000; TS018af012=0167a1c86195f9e6113f15cda0f27acd06889f7687265062cb86097f5a4b1cbed6be85a03ab5f8dce26099dc651d5eb4f099d35463e7c794db13e9b3c070e346c6b3d6df85; f5avraaaaaaaaaaaaaaaa_session_=PCIDOHHCIABMCNAPMAENNFMKALBDGHEPACHNFIOEFINJGHPPHBBNJGGKFFBFFFNAPPIDDJNDKHNGLDAJNPJAEOBIPIPJBKAAKGAOLODDMKKLNDLGFNMPBFGFOGNIKMHN; XSRF-TOKEN=eyJpdiI6Ik84bkltTlZldFdkbXBhRlhKWmNMUkE9PSIsInZhbHVlIjoiaXJiQzl4QzYxdDVNYjMzcXgzL1B1WHJjZVkrVDkwdGE1WmdPOG1EK3dsSFk4NlZmenF6WHdxOWRXTjJXRFlWMjduSmptaEk5RUhuem44bFlOYWhtTE12dXV2T1FrTFhUV3loNGFvN01VSlZYMUlDNDUrY2w1OStyc25QcFJMRVkiLCJtYWMiOiJkYTFlY2VkMzlmNjU1NzUwNDNmNGQyMzIwM2E5MzcyNjk1OTA0ZWQxMGM5ODFhMTI4NzIxNjlkZGQwN2FlMjE5IiwidGFnIjoiIn0%3D; laravel_session=eyJpdiI6IlArbUUxNnF0RjJnR1BQQ0NnVkhVVGc9PSIsInZhbHVlIjoiMDlnMkI3NTk0ak9LekZWNlllYjhuelFvdDNjWnJUUW8wSWJ4bWhRbFR5STBqcHhEdCsybTZpNFlGaFM4Um0wWG5vN3hMcWVBK21rVkZGUFBrWEVxWjhoQ1ZkNzk2NkhlOXBpL3N4a1YyeHQ4VkV3OE14aTBkU1g3SWs3cFJWREciLCJtYWMiOiI1Nzg5ZGFmYjRmYzExZmRhMWVlNDU2NzcxMDdjMjgxYjcwMjY3NDJlODdlMjAxNTI4YTAwZWRiMWI5Zjg1YzYzIiwidGFnIjoiIn0%3D; TS0151fc2b=0167a1c86118d45785fd31603fab161c6619d4bedf2466c608ef78ed187fcca638455497665181a619bd1ce01ea165dee053fb76bf; TS1a53eee7027=0815dd1fcdab20008a2279bea573cf45d96709f9410736905970d09471e5359d58e67dc53e23e80508a5506749113000a277bdcccdddff1aa85dea369ddc0839e951d8f0a4152604d03bcb32585e4df0093c0c39fa629154a06431f2aa11386d',
+        # 'Cookie': '_ga=GA1.3.451362273.1753614616; cf_clearance=dGpYKScmzan70LrF36.U20WHMIKq1Wj576cTZOmd2.M-1754396822-1.2.1.1-EPp6pVOKOLonPCwEi0aRWlGcgf53JXZeG5wD1nob3Ca_Ho1dfrd.IO69mzanDsBOIY8x_EAdAECfs_PPK7OwnXCNDGcdfNHVpSPBihcOqa4mZOKBb7vIBZBQjTvAPP93nf00eqySWGtkoYFWpBLl4c1MhB8Z5XskX3G4NShRjyJQv6b7zxnWvoO1MGWvYS.73u6DZ6IgwYnoWh8KKrVbzYaZWru4KhB4Zfx7Pn_b2NY; _ga_XXTTVXWHDB=GS2.3.s1754410359$o3$g0$t1754410359$j60$l0$h0; BIGipServeriapps_webhost_mars_443.app~iapps_webhost_mars_443_pool=1418199050.20480.0000; f5avraaaaaaaaaaaaaaaa_session_=NCBOEEOIOPHDLPHNHGMOABNNBNILCKCPMOOIOCIMHPJBJOCIAALIKFBOCNGKJHBENNLDJMNHMPCPHALIEEEAKBEMNOBENFEPPBJOECKAPFDGMOOAKOBFDDEDJNHJPMAM; TS0151fc2b=0167a1c8617fc53c7c1282bff2f6a5dbe1ff1decc2098b903426a66a10f133e61654f911977934f5e35941b1980176040d4aa2fffa; XSRF-TOKEN=eyJpdiI6Ii9qUWpNSkJQY09XSGYyVUJiNkJWYlE9PSIsInZhbHVlIjoiNkFGWlZ6SGdWYnc2Zm5aeTVRaUFmODltQ1B2eEdMSlJnRys3bTc5Q2hPaGRVaFVWVmYvNzB6bC82cmhYMHpBbnFqTUNxQXRBT0txeWlVV1FlMmZubkxoeFowY1ovTGpFZHo3cGRJK2RjTm9qWnJGeEZIWHVPQkhobEljSzdBQXYiLCJtYWMiOiJkN2YzZGUxYTE3ZDdhYTEwNDM3MDNjZjMwYmEyMWZiMTRkMzJjODY5ZTZkMmMzOWFkZjBjN2UzZDkxNTY0MmMzIiwidGFnIjoiIn0%3D; laravel_session=eyJpdiI6IjF5YWFVNkw5WkFHVGVuaVRNZHFqcUE9PSIsInZhbHVlIjoieGREOFkybzlIZnRFRVV6bUpuTjI3M3JLT080RWlIVm9BSUdJV3RDeWhxb0tVdUFyZUYwSlByWStCK0FaWllnZjBSTmp6NUxiZWdxdTB6OGZwOVM1a3JEQ1dkS0RUWU9BdE5lR1dSWElvenRQVTdOQXBvd0VYYk12SUxLcUdrU1YiLCJtYWMiOiIxZjk4OWM2ZDZhZjMxOWUwM2U4Yjk5OGVjNzQ4ZDUwMGY3NzQxZmVhY2JiZWMyOGEyNmZhYzU0MzQ1ZDJiYWFmIiwidGFnIjoiIn0%3D; TS1a53eee7027=0815dd1fcdab20001f28c692e7b65c8a46600d239d6b702860fdc30f60e97ac0c993eef29b9357de0827815cb41130001a5ec517101f1e1f8878e1808d97cb60f1aa76090aaf9703ca5d030baa67ea1f9a36200616ea90fb9edd6980a6bfb786',
     }
 
     data = {
-        '_token': 'jrfe2sJNmH0kg1jD1lf30kYF0nU7qwamN89NdQe3',
+        '_token': 'Frnxf8hxS0xbacAaw0RLFtjA0JirphKehu0mUp5d',
         'start': '0',
         'length': '10',
         'nama_usaha': '',
@@ -120,16 +120,19 @@ def get_business_id_by_idsbr(idsbr):
                 latitude = data.get('latitude')
                 longitude = data.get('longitude')
                 latlong_status = data.get('latlong_status', 'invalid')
+                gc_username = data.get('gc_username')
                 
                 print(f"✓ Found business ID for idsbr {idsbr}: {perusahaan_id[:20]}...")
                 print(f"  Geocoding Status: {latlong_status}")
                 print(f"  Coordinates: ({latitude}, {longitude})")
+                print(f"  GC Username: {gc_username if gc_username else 'Not yet geocoded'}")
                 
                 return {
                     'perusahaan_id': perusahaan_id,
                     'latitude': latitude,
                     'longitude': longitude,
-                    'latlong_status': latlong_status
+                    'latlong_status': latlong_status,
+                    'gc_username': gc_username
                 }
         
         print(f"✗ No data found for idsbr {idsbr}")
@@ -142,7 +145,7 @@ def get_business_id_by_idsbr(idsbr):
         return None
 
 
-def update_business_status(perusahaan_id, status, final_latitude, final_longitude):
+def update_business_status(perusahaan_id, status, final_latitude, final_longitude, gc_token):
     """
     Second request: Update business status by perusahaan_id
     Uses specific cookies and headers for this request (DIFFERENT from first request)
@@ -152,22 +155,22 @@ def update_business_status(perusahaan_id, status, final_latitude, final_longitud
         status: The new status (hasilgc value)
         final_latitude: The final latitude (already validated/transformed)
         final_longitude: The final longitude (already validated/transformed)
+        gc_token: The GC token to use for this request
         
     Returns:
-        True if successful, False otherwise
+        Tuple of (success: bool, new_gc_token: str or None)
     """
     print(f"  Using coordinates: ({final_latitude}, {final_longitude})")
     cookies = {
-        '_ga_K98R6MSKRH': 'GS2.1.s1768283730$o3$g0$t1768283730$j60$l0$h0',
-        '_ga': 'GA1.3.1178577724.1767583475',
-        '_ga_XXTTVXWHDB': 'GS2.3.s1768286968$o2$g0$t1768286983$j45$l0$h0',
+        '_ga': 'GA1.3.451362273.1753614616',
+        'cf_clearance': 'dGpYKScmzan70LrF36.U20WHMIKq1Wj576cTZOmd2.M-1754396822-1.2.1.1-EPp6pVOKOLonPCwEi0aRWlGcgf53JXZeG5wD1nob3Ca_Ho1dfrd.IO69mzanDsBOIY8x_EAdAECfs_PPK7OwnXCNDGcdfNHVpSPBihcOqa4mZOKBb7vIBZBQjTvAPP93nf00eqySWGtkoYFWpBLl4c1MhB8Z5XskX3G4NShRjyJQv6b7zxnWvoO1MGWvYS.73u6DZ6IgwYnoWh8KKrVbzYaZWru4KhB4Zfx7Pn_b2NY',
+        '_ga_XXTTVXWHDB': 'GS2.3.s1754410359$o3$g0$t1754410359$j60$l0$h0',
         'BIGipServeriapps_webhost_mars_443.app~iapps_webhost_mars_443_pool': '1418199050.20480.0000',
-        'TS018af012': '0167a1c86195f9e6113f15cda0f27acd06889f7687265062cb86097f5a4b1cbed6be85a03ab5f8dce26099dc651d5eb4f099d35463e7c794db13e9b3c070e346c6b3d6df85',
-        'f5avraaaaaaaaaaaaaaaa_session_': 'PCIDOHHCIABMCNAPMAENNFMKALBDGHEPACHNFIOEFINJGHPPHBBNJGGKFFBFFFNAPPIDDJNDKHNGLDAJNPJAEOBIPIPJBKAAKGAOLODDMKKLNDLGFNMPBFGFOGNIKMHN',
-        'TS0151fc2b': '0167a1c86118d45785fd31603fab161c6619d4bedf2466c608ef78ed187fcca638455497665181a619bd1ce01ea165dee053fb76bf',
-        'XSRF-TOKEN': 'eyJpdiI6InQyZTlrTFQzdXUwN01hektMS01SbHc9PSIsInZhbHVlIjoidHhnN0l1NUNmMnRQc2NobHlDNEp2MzIwQWY5MFl0VXdkamp2bGgzMU81SzhtdHFsZC9zOThJNFd2MFNSSU5BWjRIZ3MyK2FCQjlueDRiOEVEQ1ZRZkFBS3BlZVRuWnpBWW1leG00VC9aTlN6MmdWQWZQT25CTFVsSWNibVJzcVoiLCJtYWMiOiIzOTRlOGQzZjVlODEwMjFhZTQ5YzFmZmFjZTg3OTlmM2MzN2ZkNmQwNGIzZDAzMmFkMjFlZGIxMTZkODk5ZTFhIiwidGFnIjoiIn0%3D',
-        'laravel_session': 'eyJpdiI6IjEvZ1lDVGRsajdRdHlOc0xqVUswd3c9PSIsInZhbHVlIjoiVm80ZFArdlhtT3lGdUxwakVrbHJUbWg5c3Mzb2hGVWFzZEZlcElUeUVwdnNwYlkvQkcxanhMZ3JVRENBSWFYMndCK3JzU2NxNlhYMmVONFo0WllGMFF0S201Q3VXUUJJbTBNcVRVS0RBbFlFam40eXZLY2lRUm54bzR3SEtEZnEiLCJtYWMiOiIwNGI4MTVjNWQ2MDc4MmNjOWE3OWQ4ZDJhOGE3NTg1NGMzOWQyZmIzMWIwMTViMmJlNzdjNDE3NWRkMjFlZGZkIiwidGFnIjoiIn0%3D',
-        'TS1a53eee7027': '0815dd1fcdab200096b7af70ac8713969ad986c483395f453f47b2734156d7e9a0b3bc0c65b6ffa608e39d2a90113000f329b19befbd720da557f4ab0d59e7684e7afcc458af57801932696e38b99dc867ace0f9a9904dfb76e0c6bc2a413ebc',
+        'f5avraaaaaaaaaaaaaaaa_session_': 'NCBOEEOIOPHDLPHNHGMOABNNBNILCKCPMOOIOCIMHPJBJOCIAALIKFBOCNGKJHBENNLDJMNHMPCPHALIEEEAKBEMNOBENFEPPBJOECKAPFDGMOOAKOBFDDEDJNHJPMAM',
+        'TS0151fc2b': '0167a1c8617fc53c7c1282bff2f6a5dbe1ff1decc2098b903426a66a10f133e61654f911977934f5e35941b1980176040d4aa2fffa',
+        'XSRF-TOKEN': 'eyJpdiI6IlF1bE9vYnRrbHkxZU5TOWZ5Z0xWRVE9PSIsInZhbHVlIjoiYUJDQW1NZWJoaEdrSUxVYloweEpWcG9JSEZFRHkrMUQ1TDhaeCtnbDQvaUExY0Z0KzQrbytSeGhCZDQ2NklCVWlZRURpMEQxdUEvTVJYMUJuUkgrVXJrWnFJbHJhaEVtNnYxUXlLcmFuNUVVR25WcVJQWG0yV3ZQVXJZNy9jYVoiLCJtYWMiOiI2ZjllNWFlMTA0ZTUzMDFjMjViNzJlZmU1NWE5MDYwOTRkMjQxZGY5YjJjYTUyMzE4MjBkODk4ODRlZGUzYzM2IiwidGFnIjoiIn0%3D',
+        'laravel_session': 'eyJpdiI6ImN6Mlg5eDNVTW1KZk1PSU0wTGtsZUE9PSIsInZhbHVlIjoiL09FOThjRHAxTUpJUFk4MU83Ky9Xd1h4dk9QemZ4UkhYSHN0WFVXTEw3Z1lBWmFvK0JsY0NYdzlqZUNpaURuSytJQjBNaDIzaExjRmgwdVRZL1drS2YrNmdLUHd4Q1QwRnppaG5wWSt5L2RGRmJjOGluNnFTbkdUNkN1YS9MNU8iLCJtYWMiOiI1NmUwMmI4MjRhNzQ5OTY4MjM0NzQ3ODVkNjY0YTQyOWQzMjZjNGMyMmE2MGJmZmY2M2I3YzkwYzQ2YzY2MjFjIiwidGFnIjoiIn0%3D',
+        'TS1a53eee7027': '0815dd1fcdab200009af98de45912f61835036c7c45d0fbe18a62c87441e48c48209bc003912fbc308d5b293ee11300085fbb2f6ac31713edbfd04395fd4a386d214ab831a663cba2dfd895dcf96c8e8c8773a5a9e3df584a0e646969cdbf2a7',
     }
 
     headers = {
@@ -185,7 +188,7 @@ def update_business_status(perusahaan_id, status, final_latitude, final_longitud
         'sec-ch-ua': '"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
         'sec-ch-ua-mobile': '?0',
         'sec-ch-ua-platform': '"Windows"',
-        # 'Cookie': '_ga_K98R6MSKRH=GS2.1.s1768283730$o3$g0$t1768283730$j60$l0$h0; _ga=GA1.3.1178577724.1767583475; _ga_XXTTVXWHDB=GS2.3.s1768286968$o2$g0$t1768286983$j45$l0$h0; BIGipServeriapps_webhost_mars_443.app~iapps_webhost_mars_443_pool=1418199050.20480.0000; TS018af012=0167a1c86195f9e6113f15cda0f27acd06889f7687265062cb86097f5a4b1cbed6be85a03ab5f8dce26099dc651d5eb4f099d35463e7c794db13e9b3c070e346c6b3d6df85; f5avraaaaaaaaaaaaaaaa_session_=PCIDOHHCIABMCNAPMAENNFMKALBDGHEPACHNFIOEFINJGHPPHBBNJGGKFFBFFFNAPPIDDJNDKHNGLDAJNPJAEOBIPIPJBKAAKGAOLODDMKKLNDLGFNMPBFGFOGNIKMHN; TS0151fc2b=0167a1c86118d45785fd31603fab161c6619d4bedf2466c608ef78ed187fcca638455497665181a619bd1ce01ea165dee053fb76bf; XSRF-TOKEN=eyJpdiI6InQyZTlrTFQzdXUwN01hektMS01SbHc9PSIsInZhbHVlIjoidHhnN0l1NUNmMnRQc2NobHlDNEp2MzIwQWY5MFl0VXdkamp2bGgzMU81SzhtdHFsZC9zOThJNFd2MFNSSU5BWjRIZ3MyK2FCQjlueDRiOEVEQ1ZRZkFBS3BlZVRuWnpBWW1leG00VC9aTlN6MmdWQWZQT25CTFVsSWNibVJzcVoiLCJtYWMiOiIzOTRlOGQzZjVlODEwMjFhZTQ5YzFmZmFjZTg3OTlmM2MzN2ZkNmQwNGIzZDAzMmFkMjFlZGIxMTZkODk5ZTFhIiwidGFnIjoiIn0%3D; laravel_session=eyJpdiI6IjEvZ1lDVGRsajdRdHlOc0xqVUswd3c9PSIsInZhbHVlIjoiVm80ZFArdlhtT3lGdUxwakVrbHJUbWg5c3Mzb2hGVWFzZEZlcElUeUVwdnNwYlkvQkcxanhMZ3JVRENBSWFYMndCK3JzU2NxNlhYMmVONFo0WllGMFF0S201Q3VXUUJJbTBNcVRVS0RBbFlFam40eXZLY2lRUm54bzR3SEtEZnEiLCJtYWMiOiIwNGI4MTVjNWQ2MDc4MmNjOWE3OWQ4ZDJhOGE3NTg1NGMzOWQyZmIzMWIwMTViMmJlNzdjNDE3NWRkMjFlZGZkIiwidGFnIjoiIn0%3D; TS1a53eee7027=0815dd1fcdab200096b7af70ac8713969ad986c483395f453f47b2734156d7e9a0b3bc0c65b6ffa608e39d2a90113000f329b19befbd720da557f4ab0d59e7684e7afcc458af57801932696e38b99dc867ace0f9a9904dfb76e0c6bc2a413ebc',
+        # 'Cookie': '_ga=GA1.3.451362273.1753614616; cf_clearance=dGpYKScmzan70LrF36.U20WHMIKq1Wj576cTZOmd2.M-1754396822-1.2.1.1-EPp6pVOKOLonPCwEi0aRWlGcgf53JXZeG5wD1nob3Ca_Ho1dfrd.IO69mzanDsBOIY8x_EAdAECfs_PPK7OwnXCNDGcdfNHVpSPBihcOqa4mZOKBb7vIBZBQjTvAPP93nf00eqySWGtkoYFWpBLl4c1MhB8Z5XskX3G4NShRjyJQv6b7zxnWvoO1MGWvYS.73u6DZ6IgwYnoWh8KKrVbzYaZWru4KhB4Zfx7Pn_b2NY; _ga_XXTTVXWHDB=GS2.3.s1754410359$o3$g0$t1754410359$j60$l0$h0; BIGipServeriapps_webhost_mars_443.app~iapps_webhost_mars_443_pool=1418199050.20480.0000; f5avraaaaaaaaaaaaaaaa_session_=NCBOEEOIOPHDLPHNHGMOABNNBNILCKCPMOOIOCIMHPJBJOCIAALIKFBOCNGKJHBENNLDJMNHMPCPHALIEEEAKBEMNOBENFEPPBJOECKAPFDGMOOAKOBFDDEDJNHJPMAM; TS0151fc2b=0167a1c8617fc53c7c1282bff2f6a5dbe1ff1decc2098b903426a66a10f133e61654f911977934f5e35941b1980176040d4aa2fffa; XSRF-TOKEN=eyJpdiI6IlF1bE9vYnRrbHkxZU5TOWZ5Z0xWRVE9PSIsInZhbHVlIjoiYUJDQW1NZWJoaEdrSUxVYloweEpWcG9JSEZFRHkrMUQ1TDhaeCtnbDQvaUExY0Z0KzQrbytSeGhCZDQ2NklCVWlZRURpMEQxdUEvTVJYMUJuUkgrVXJrWnFJbHJhaEVtNnYxUXlLcmFuNUVVR25WcVJQWG0yV3ZQVXJZNy9jYVoiLCJtYWMiOiI2ZjllNWFlMTA0ZTUzMDFjMjViNzJlZmU1NWE5MDYwOTRkMjQxZGY5YjJjYTUyMzE4MjBkODk4ODRlZGUzYzM2IiwidGFnIjoiIn0%3D; laravel_session=eyJpdiI6ImN6Mlg5eDNVTW1KZk1PSU0wTGtsZUE9PSIsInZhbHVlIjoiL09FOThjRHAxTUpJUFk4MU83Ky9Xd1h4dk9QemZ4UkhYSHN0WFVXTEw3Z1lBWmFvK0JsY0NYdzlqZUNpaURuSytJQjBNaDIzaExjRmgwdVRZL1drS2YrNmdLUHd4Q1QwRnppaG5wWSt5L2RGRmJjOGluNnFTbkdUNkN1YS9MNU8iLCJtYWMiOiI1NmUwMmI4MjRhNzQ5OTY4MjM0NzQ3ODVkNjY0YTQyOWQzMjZjNGMyMmE2MGJmZmY2M2I3YzkwYzQ2YzY2MjFjIiwidGFnIjoiIn0%3D; TS1a53eee7027=0815dd1fcdab200009af98de45912f61835036c7c45d0fbe18a62c87441e48c48209bc003912fbc308d5b293ee11300085fbb2f6ac31713edbfd04395fd4a386d214ab831a663cba2dfd895dcf96c8e8c8773a5a9e3df584a0e646969cdbf2a7',
     }
  
     try:
@@ -194,7 +197,8 @@ def update_business_status(perusahaan_id, status, final_latitude, final_longitud
             'latitude': final_latitude,
             'longitude': final_longitude,
             'hasilgc': str(status),
-            '_token': 'jrfe2sJNmH0kg1jD1lf30kYF0nU7qwamN89NdQe3',
+            '_token': 'Frnxf8hxS0xbacAaw0RLFtjA0JirphKehu0mUp5d',
+            'gc_token': gc_token,
         }
 
         response = requests.post('https://matchapro.web.bps.go.id/dirgc/konfirmasi-user', cookies=cookies, headers=headers, data=data) 
@@ -202,21 +206,32 @@ def update_business_status(perusahaan_id, status, final_latitude, final_longitud
         print(f"Update Response Status Code: {response.status_code}")
         
         if response.status_code == 200:
-            print(f"✓ Successfully updated status to {status}")
-            return True
+            result = response.json()
+            new_gc_token = result.get('new_gc_token')
+            
+            if result.get('status') == 'success':
+                print(f"✓ Successfully updated status to {status}")
+                print(f"  New GC Token: {new_gc_token[:20]}..." if new_gc_token else "  No new GC token received")
+                return True, new_gc_token
+            else:
+                print(f"✗ Update failed: {result.get('message', 'Unknown error')}")
+                return False, gc_token
         else:
             print(f"✗ Failed to update status. Status code: {response.status_code}")
             print(f"  Response: {response.text}")
-            return False
+            return False, gc_token
             
     except Exception as e:
         print(f"✗ Error updating business status: {str(e)}")
-        return False
+        return False, gc_token
 
 def process_gc_excel():
     """
     Main function: Read Excel file and process rows with empty or failed response
     """
+    # Initialize GC token with the initial value
+    current_gc_token = INITIAL_GC_TOKEN
+    
     try:
         # Read Excel file with specific dtypes to ensure columns are read as strings
         df = pd.read_excel(EXCEL_FILE, dtype={
@@ -256,6 +271,15 @@ def process_gc_excel():
                 print("Response: failed (could not get business ID)")
                 continue
             
+            # Check if already geocoded by another user
+            if result.get('gc_username'):
+                df.at[idx, 'response'] = 'already_updated'
+                print(f"Response: already_updated (geocoded by user: {result.get('gc_username')})")
+                # Save and skip to next row
+                df.to_excel(EXCEL_FILE, index=False)
+                print(f"✓ Row {idx + 1} saved to Excel")
+                continue
+            
             # Store initial coordinate information
             df.at[idx, 'latlong_status_initial'] = str(result['latlong_status']) if result['latlong_status'] is not None else None
             df.at[idx, 'latitude_initial'] = str(result['latitude']) if result['latitude'] is not None else None
@@ -285,14 +309,20 @@ def process_gc_excel():
             time.sleep(1)
             
             # Step 3: Update business status with the transformed coordinates
-            update_result = update_business_status(
+            update_success, new_gc_token = update_business_status(
                 result['perusahaan_id'],
                 status,
                 final_latitude,
-                final_longitude
+                final_longitude,
+                current_gc_token
             )
-            if update_result:
+            
+            if update_success:
                 df.at[idx, 'response'] = 'success'
+                # Update current_gc_token for next request if new token received
+                if new_gc_token:
+                    current_gc_token = new_gc_token
+                    print(f"  ✓ GC token updated for next request")
             else:
                 df.at[idx, 'response'] = 'failed'
             
