@@ -47,6 +47,10 @@ SOURCE2_PATTERN = "*.csv"
 DEBUG_MODE = False
 DEBUG_ROW_LIMIT = 10000
 
+# Streaming save mode (write results incrementally while processing)
+STREAM_SAVE = False
+STREAM_CHUNK_SIZE = 200_000
+
 # Output configuration
 OUTPUT_FILENAME = 'matched_businesses.csv'
 OUTPUT_FILENAME_DEBUG = 'matched_businesses_debug.csv'
@@ -81,6 +85,13 @@ class LatLongConverter:
             return float(str_val)
         except ValueError:
             return np.nan
+
+    @staticmethod
+    def normalize_coord_series(series: pd.Series) -> pd.Series:
+        """Vectorized coordinate normalization for pandas Series."""
+        # Convert to string, strip, replace comma with dot, then coerce to float
+        s = series.astype(str).str.strip().str.replace(',', '.', regex=False)
+        return pd.to_numeric(s, errors='coerce')
     
     @staticmethod
     def is_valid_coordinate(lat, lon):
@@ -207,8 +218,8 @@ class BusinessMatcher:
         df = df.copy()
         
         # Normalize coordinates
-        df['latitude'] = df['latitude'].apply(self.converter.normalize_coord)
-        df['longitude'] = df['longitude'].apply(self.converter.normalize_coord)
+        df['latitude'] = self.converter.normalize_coord_series(df['latitude'])
+        df['longitude'] = self.converter.normalize_coord_series(df['longitude'])
         
         # Filter valid coordinates
         initial_count = len(df)
@@ -258,8 +269,8 @@ class BusinessMatcher:
         df = df.copy()
         
         # Normalize coordinates
-        df['latitude'] = df['latitude'].apply(self.converter.normalize_coord)
-        df['longitude'] = df['longitude'].apply(self.converter.normalize_coord)
+        df['latitude'] = self.converter.normalize_coord_series(df['latitude'])
+        df['longitude'] = self.converter.normalize_coord_series(df['longitude'])
         
         # Standardize name
         df['name'] = df['name'].fillna('').astype(str).str.strip().str.lower()
@@ -359,60 +370,139 @@ class BusinessMatcher:
         Returns:
             pd.DataFrame: Matched results with idsbr, id, and all source2 columns
         """
-        logger.info("Starting matching process - exact name and coordinate match")
-        
-        matches = []
-        total_rows = len(source1)
-        
-        for idx, row1 in source1.iterrows():
-            if (idx + 1) % 5000 == 0:
-                logger.info(f"Processing row {idx + 1} / {total_rows}")
-            
-            # Get source 1 data
-            idsbr = row1['idsbr']
-            name1 = row1['nama_usaha']
-            village_id1 = row1['iddesa']
-            lat1 = row1['latitude']
-            lon1 = row1['longitude']
-            
-            # Filter source 2 by village_id
-            source2_filtered = source2[source2['village_id'] == village_id1]
-            
-            if source2_filtered.empty:
-                continue
-            
-            # Find exact matches in filtered source 2
-            for idx2, row2 in source2_filtered.iterrows():
-                name2 = row2['name']
-                lat2 = row2['latitude']
-                lon2 = row2['longitude']
-                
-                # Check name is IDENTICAL
-                if name1 != name2:
-                    continue
-                
-                # Check coordinates are EXACTLY equivalent
-                if lat1 != lat2 or lon1 != lon2:
-                    continue
-                
-                # Get the raw row with all columns
-                raw_row = source2_raw.iloc[idx2].to_dict()
-                
-                # Match found - add idsbr to the raw data
-                raw_row['idsbr'] = idsbr
-                matches.append(raw_row)
-        
-        result_df = pd.DataFrame(matches)
-        logger.info(f"Found {len(result_df)} exact matches")
-        
+        logger.info("Starting matching process - exact name and coordinate match (vectorized)")
+
+        # Build match keys without mutating raw output columns
+        s1_keys = source1[['idsbr', 'iddesa', 'nama_usaha', 'latitude', 'longitude']].copy()
+        s1_keys.rename(
+            columns={
+                'iddesa': '_village_key',
+                'nama_usaha': '_name_key',
+                'latitude': '_lat_key',
+                'longitude': '_lon_key',
+            },
+            inplace=True,
+        )
+
+        s2_keys = source2_raw.copy()
+        required_cols = ['id', 'name', 'village_id', 'latitude', 'longitude']
+        missing_cols = [col for col in required_cols if col not in s2_keys.columns]
+        if missing_cols:
+            logger.error(f"Missing columns in source 2 raw: {missing_cols}")
+            return pd.DataFrame()
+
+        s2_keys['_village_key'] = s2_keys['village_id']
+        s2_keys['_name_key'] = s2_keys['name'].fillna('').astype(str).str.strip().str.lower()
+        s2_keys['_lat_key'] = self.converter.normalize_coord_series(s2_keys['latitude'])
+        s2_keys['_lon_key'] = self.converter.normalize_coord_series(s2_keys['longitude'])
+
+        # Inner join on the exact-match keys
+        merged = pd.merge(
+            s2_keys,
+            s1_keys[['idsbr', '_village_key', '_name_key', '_lat_key', '_lon_key']],
+            on=['_village_key', '_name_key', '_lat_key', '_lon_key'],
+            how='inner',
+            sort=False,
+            copy=False,
+        )
+
+        # Drop helper key columns
+        merged.drop(columns=['_village_key', '_name_key', '_lat_key', '_lon_key'], inplace=True)
+
+        logger.info(f"Found {len(merged)} exact matches")
+
         # Reorder columns to have idsbr first
-        if not result_df.empty:
-            cols = result_df.columns.tolist()
+        if not merged.empty:
+            cols = merged.columns.tolist()
+            cols.remove('idsbr')
+            merged = merged[['idsbr'] + cols]
+
+        return merged
+
+    def match_businesses_to_csv(
+        self,
+        source1: pd.DataFrame,
+        source2_raw: pd.DataFrame,
+        output_path: str,
+        chunk_size: int = STREAM_CHUNK_SIZE,
+    ) -> int:
+        """Stream exact matches to CSV while processing in chunks.
+
+        This avoids holding all matches in memory and lets you see results
+        immediately on disk.
+
+        Returns:
+            int: Total matches written.
+        """
+        logger.info("Starting matching process - exact name and coordinate match (streaming)")
+
+        required_cols = ['id', 'name', 'village_id', 'latitude', 'longitude']
+        missing_cols = [col for col in required_cols if col not in source2_raw.columns]
+        if missing_cols:
+            logger.error(f"Missing columns in source 2 raw: {missing_cols}")
+            return 0
+
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+        # Prepare source2 indexed table once
+        s2 = source2_raw.copy()
+        s2['_village_key'] = s2['village_id']
+        s2['_name_key'] = s2['name'].fillna('').astype(str).str.strip().str.lower()
+        s2['_lat_key'] = self.converter.normalize_coord_series(s2['latitude'])
+        s2['_lon_key'] = self.converter.normalize_coord_series(s2['longitude'])
+
+        s2_indexed = s2.set_index(['_village_key', '_name_key', '_lat_key', '_lon_key'])
+
+        # Prepare source1 keys
+        s1 = source1[['idsbr', 'iddesa', 'nama_usaha', 'latitude', 'longitude']].copy()
+        s1.rename(
+            columns={
+                'iddesa': '_village_key',
+                'nama_usaha': '_name_key',
+                'latitude': '_lat_key',
+                'longitude': '_lon_key',
+            },
+            inplace=True,
+        )
+
+        total_rows = len(s1)
+        total_written = 0
+        wrote_header = os.path.exists(output_path)
+
+        for start in range(0, total_rows, chunk_size):
+            end = min(start + chunk_size, total_rows)
+            chunk = s1.iloc[start:end].copy()
+            chunk_indexed = chunk.set_index(['_village_key', '_name_key', '_lat_key', '_lon_key'])
+
+            # Join: keeps idsbr from chunk and all columns from source2
+            joined = chunk_indexed.join(s2_indexed, how='inner', rsuffix='_s2')
+            if joined.empty:
+                if end % (chunk_size * 5) == 0 or end == total_rows:
+                    logger.info(f"Processed {end} / {total_rows} rows (matches written: {total_written})")
+                continue
+
+            joined.reset_index(drop=True, inplace=True)
+
+            # Ensure idsbr first
+            cols = joined.columns.tolist()
             if 'idsbr' in cols:
                 cols.remove('idsbr')
-            result_df = result_df[['idsbr'] + cols]
-        
-        return result_df
+                joined = joined[['idsbr'] + cols]
+
+            joined.to_csv(output_path, index=False, mode='a', header=not wrote_header)
+            wrote_header = True
+
+            total_written += len(joined)
+            logger.info(
+                f"Processed {end} / {total_rows} rows (chunk matches: {len(joined)}, total written: {total_written})"
+            )
+
+        if total_written == 0:
+            logger.warning("No exact matches found")
+        else:
+            logger.info(f"Streaming results saved to {output_path}")
+
+        return total_written
     
     def save_results(self, results: pd.DataFrame, output_path: str):
         """
@@ -473,15 +563,31 @@ def main():
         logger.info(f"DEBUG MODE: Limited source 1 from {original_count} to {len(source1)} rows")
     
     # Match businesses - pass raw source2 to include all columns
+    if STREAM_SAVE:
+        total_written = matcher.match_businesses_to_csv(
+            source1=source1,
+            source2_raw=source2_raw,
+            output_path=output_path,
+            chunk_size=STREAM_CHUNK_SIZE,
+        )
+
+        logger.info("=" * 80)
+        logger.info("MATCHING SUMMARY")
+        logger.info("=" * 80)
+        logger.info(f"Total source 1 records: {len(source1)}")
+        logger.info(f"Total source 2 records: {len(source2)}")
+        logger.info(f"Total exact matches written: {total_written}")
+        logger.info(f"Output file: {output_path}")
+        logger.info("=" * 80)
+        return
+
     results = matcher.match_businesses(source1, source2_raw, source2)
-    
+
     if results.empty:
         logger.warning("No exact matches found")
     else:
-        # Save results
         matcher.save_results(results, output_path)
-        
-        # Print summary
+
         logger.info("=" * 80)
         logger.info("MATCHING SUMMARY")
         logger.info("=" * 80)
