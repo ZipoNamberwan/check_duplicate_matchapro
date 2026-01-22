@@ -3,8 +3,8 @@
 Business Duplicate Detector with Combined Data Sources (SBR + KDM)
 
 This script is an enhanced version of duplicate_detection.py that supports multiple data sources:
-1. SBR Source (source/ folder) - Original source with Sumber filter
-2. KDM Source (source_kdm/ folder) - New source without filters
+1. SBR Source (source_matcha_pro_all/ folder) - CSV source with no filtering
+2. KDM Source (source_kdm_all/ folder) - CSV source filtered by regency_id
 
 Features:
 - Loads businesses from multiple sources
@@ -20,21 +20,21 @@ Configuration:
 - USE_COMMON_WORDS_FILTERING: Enable/disable common words filtering (default: True)
 
 Data Source Mappings:
-SBR Source (source/ folder):
+SBR Source (source_matcha_pro_all/ folder):
   - Business name: nama_usaha
   - Owner: extracted from nama_usaha <owner> or (owner)
   - Latitude: latitude
   - Longitude: longitude
   - Business Type: sbr
-  - Filtering: Sumber Data = 'PL-KUMKM 2023'
+    - Filtering: No filtering (use all rows)
 
-KDM Source (source_kdm/ folder):
-  - Business name: Nama_Usaha
-  - Owner: Pemilik
-  - Latitude: Latitude
-  - Longitude: Longitude
+KDM Source (source_kdm_all/ folder):
+    - Business name: name
+    - Owner: owner (optional for market_business files)
+    - Latitude: latitude
+    - Longitude: longitude
   - Business Type: kdm
-  - Filtering: No filtering (use all rows)
+    - Filtering: regency_id in configured allow-list
 """
 
 import os
@@ -71,14 +71,16 @@ def get_jakarta_now():
 # Search radius in meters
 RADIUS_METERS = 70
 
-# Excel data configuration
-EXCEL_SBR_FOLDER = 'source'  # Folder containing SBR Excel files (original source)
-EXCEL_KDM_FOLDER = 'source_kdm'  # Folder containing KDM Excel files (new source)
+# Data folder configuration
+EXCEL_SBR_FOLDER = 'source_matcha_pro_all'  # Folder containing SBR CSV files
+EXCEL_KDM_FOLDER = 'source_kdm_all'  # Folder containing KDM CSV files
 EXCEL_RESULT_FOLDER = 'result'  # Folder to save results
 EXCEL_RESULT_FILENAME = 'result.xlsx'  # Output filename
 
-# SBR Source filter configuration
-FILTER_SUMBER_VALUE = 'PL-KUMKM 2023'  # Filter rows where Sumber column = this value
+# KDM Source filter configuration
+ALLOWED_REGENCY_IDS = {
+    '3526', '3527', '3571', '3572', '3574', '3575', '3576', '3577', '3579'
+}
 
 # Debug mode - set to True to limit businesses for testing
 DEBUG_MODE = False
@@ -192,6 +194,28 @@ def extract_owner_from_name(name: str) -> tuple:
     
     # No owner found
     return name.strip(), ""
+
+
+def normalize_regency_id(value: Any) -> str:
+    """Normalize regency_id (or prefix) to a comparable digit string.
+
+    Examples:
+    - 3526 -> '3526'
+    - 3526.0 -> '3526'
+    - ' 35.26 ' -> '3526'
+    """
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+
+    text = str(value).strip()
+    if not text:
+        return ""
+
+    if re.fullmatch(r"\d+\.0+", text):
+        text = text.split(".", 1)[0]
+
+    digits = re.sub(r"\D", "", text)
+    return digits or text
 
 # =====================================================================
 # TEXT NORMALIZATION AND SIMILARITY UTILITIES
@@ -579,12 +603,15 @@ class SpatialIndex:
 # =====================================================================
 
 class CombinedExcelDataManager:
-    """Handles loading data from multiple Excel sources (SBR and KDM)"""
+    """Handles loading data from multiple sources (SBR and KDM)"""
     
     def __init__(self):
-        self.sbr_folder = EXCEL_SBR_FOLDER
-        self.kdm_folder = EXCEL_KDM_FOLDER
-        self.result_folder = EXCEL_RESULT_FOLDER
+        self.base_dir = os.path.dirname(os.path.abspath(__file__))
+
+        self.sbr_folder = EXCEL_SBR_FOLDER if os.path.isabs(EXCEL_SBR_FOLDER) else os.path.join(self.base_dir, EXCEL_SBR_FOLDER)
+        self.kdm_folder = EXCEL_KDM_FOLDER if os.path.isabs(EXCEL_KDM_FOLDER) else os.path.join(self.base_dir, EXCEL_KDM_FOLDER)
+        self.result_folder = EXCEL_RESULT_FOLDER if os.path.isabs(EXCEL_RESULT_FOLDER) else os.path.join(self.base_dir, EXCEL_RESULT_FOLDER)
+
         os.makedirs(self.result_folder, exist_ok=True)
     
     def load_excel_files(self, folder: str) -> pd.DataFrame:
@@ -630,6 +657,7 @@ class CombinedExcelDataManager:
     def load_csv_files(self, folder: str) -> pd.DataFrame:
         """Load all CSV files from a folder and combine them"""
         print(f"📁 Loading CSV files from '{folder}' folder...")
+        print(f"   CWD: {os.getcwd()}")
         
         # Find all CSV files
         csv_files = glob.glob(os.path.join(folder, '*.csv'))
@@ -649,7 +677,7 @@ class CombinedExcelDataManager:
         for file in csv_files:
             try:
                 print(f"  Loading {os.path.basename(file)}...", end=" ")
-                df = pd.read_csv(file)
+                df = pd.read_csv(file, low_memory=False)
                 dfs.append(df)
                 total_rows += len(df)
                 print(f"({len(df)} rows)")
@@ -667,20 +695,20 @@ class CombinedExcelDataManager:
         return combined_df
     
     def get_sbr_businesses(self) -> List[Business]:
-        """Load and process SBR Excel data into Business objects"""
+        """Load and process SBR CSV data into Business objects"""
         print("\n" + "="*70)
-        print("LOADING SBR SOURCE (source/ folder)")
+        print("LOADING SBR SOURCE (source_matcha_pro_all/ folder)")
         print("="*70)
         
-        # Load Excel files
-        df = self.load_excel_files(self.sbr_folder)
+        # Load CSV files
+        df = self.load_csv_files(self.sbr_folder)
         
         if df.empty:
             print("⚠️ No SBR data to process")
             return []
         
         # Check required columns
-        required_columns = ['idsbr', 'nama_usaha', 'Sumber Data', 'latitude', 'longitude']
+        required_columns = ['idsbr', 'nama_usaha', 'latitude', 'longitude', 'kode_wilayah']
         missing_columns = [col for col in required_columns if col not in df.columns]
         
         if missing_columns:
@@ -688,28 +716,33 @@ class CombinedExcelDataManager:
             print(f"   Available columns: {list(df.columns)}")
             return []
         
-        # Filter by Sumber Data value
-        print(f"\n🔍 Filtering rows where Sumber Data = '{FILTER_SUMBER_VALUE}'...")
-        filtered_df = df[df['Sumber Data'] == FILTER_SUMBER_VALUE].copy()
-        
-        if filtered_df.empty:
-            print(f"⚠️ No rows found with Sumber = '{FILTER_SUMBER_VALUE}'")
-            return []
-        
-        print(f"✓ Found {len(filtered_df)} matching rows")
+        # Filter SBR by regency prefix from kode_wilayah (first 4 chars)
+        before_count = len(df)
+        regency_prefix = df['kode_wilayah'].map(normalize_regency_id).str.slice(0, 4)
+        df = df[regency_prefix.isin(ALLOWED_REGENCY_IDS)].copy()
+        print(f"\n🔍 Filtered SBR by kode_wilayah regency prefix in {sorted(ALLOWED_REGENCY_IDS)}")
+        print(f"✓ Kept {len(df):,} of {before_count:,} rows")
+
+        if len(df) == 0 and before_count > 0:
+            try:
+                sample = regency_prefix[regency_prefix != ""].value_counts().head(20)
+                print("⚠️ After filtering, 0 rows kept. Top regency prefixes found:")
+                print(sample.to_string())
+            except Exception:
+                pass
         
         # Remove rows with missing coordinates
-        filtered_df = filtered_df.dropna(subset=['latitude', 'longitude'])
-        print(f"✓ {len(filtered_df)} rows have valid coordinates")
+        df = df.dropna(subset=['latitude', 'longitude'])
+        print(f"✓ {len(df)} rows have valid coordinates")
         
         # Apply debug limit if enabled
         if DEBUG_MODE:
-            filtered_df = filtered_df.iloc[:DEBUG_LIMIT]
-            print(f"🐛 DEBUG MODE: Limited to {len(filtered_df)} rows")
+            df = df.iloc[:DEBUG_LIMIT]
+            print(f"🐛 DEBUG MODE: Limited to {len(df)} rows")
         
         # Convert to Business objects
         businesses = []
-        for idx, row in filtered_df.iterrows():
+        for idx, row in df.iterrows():
             try:
                 nama_usaha = str(row['nama_usaha']) if pd.notna(row['nama_usaha']) else ""
                 cleaned_name, extracted_owner = extract_owner_from_name(nama_usaha)
@@ -743,7 +776,7 @@ class CombinedExcelDataManager:
     def get_kdm_businesses(self) -> List[Business]:
         """Load and process KDM CSV data into Business objects"""
         print("\n" + "="*70)
-        print("LOADING KDM SOURCE (source_kdm/ folder)")
+        print("LOADING KDM SOURCE (source_kdm_all/ folder)")
         print("="*70)
         
         # Load CSV files
@@ -754,19 +787,43 @@ class CombinedExcelDataManager:
             return []
         
         # Check required columns for KDM
-        required_columns = ['id', 'Nama_Usaha', 'Pemilik', 'Latitude', 'Longitude']
+        # Expected columns: id, name, owner (optional), latitude, longitude, sls_id
+        # Note: Some files (e.g., market_business*.csv) may not include the owner column.
+        required_columns = ['id', 'name', 'latitude', 'longitude']
         missing_columns = [col for col in required_columns if col not in df.columns]
-        
+
         if missing_columns:
             print(f"❌ Missing required KDM columns: {missing_columns}")
             print(f"   Available columns: {list(df.columns)}")
             return []
+
+        # Owner column is optional; default to empty when missing
+        if 'owner' not in df.columns:
+            print("\n⚠️ Column 'owner' not found in KDM data; defaulting owner to empty (common for market_business files)")
+            df['owner'] = ""
         
-        # No filtering for KDM source - use all rows
-        print(f"\n✓ Using all {len(df)} rows (no filtering)")
+        # Filter by regency_id
+        if 'regency_id' in df.columns:
+            before_count = len(df)
+            df_regency = df['regency_id'].map(normalize_regency_id)
+            df = df[df_regency.isin(ALLOWED_REGENCY_IDS)].copy()
+            print(f"\n🔍 Filtered by regency_id in {sorted(ALLOWED_REGENCY_IDS)}")
+            print(f"✓ Kept {len(df):,} of {before_count:,} rows")
+
+            if len(df) == 0 and before_count > 0:
+                try:
+                    sample = df_regency[df_regency != ""].value_counts().head(20)
+                    print("⚠️ After filtering, 0 rows kept. Top regency_id values found (normalized):")
+                    print(sample.to_string())
+                    print("   Tip: add the needed regency_id(s) to ALLOWED_REGENCY_IDS")
+                except Exception:
+                    pass
+        else:
+            print("\n⚠️ Column 'regency_id' not found; skipping regency filter")
+            print(f"✓ Using all {len(df)} rows")
         
         # Remove rows with missing coordinates
-        df = df.dropna(subset=['Latitude', 'Longitude'])
+        df = df.dropna(subset=['latitude', 'longitude'])
         print(f"✓ {len(df)} rows have valid coordinates")
         
         # Apply debug limit if enabled
@@ -778,62 +835,34 @@ class CombinedExcelDataManager:
         businesses = []
         for idx, row in df.iterrows():
             try:
-                nama_usaha = str(row['Nama_Usaha']) if pd.notna(row['Nama_Usaha']) else ""
-                pemilik = str(row['Pemilik']) if pd.notna(row['Pemilik']) else ""
+                nama_usaha = str(row['name']) if pd.notna(row['name']) else ""
+                pemilik = str(row['owner']) if pd.notna(row['owner']) else ""
                 
-                lat_str = str(row['Latitude']).replace(',', '.')
-                lng_str = str(row['Longitude']).replace(',', '.')
+                lat_str = str(row['latitude']).replace(',', '.')
+                lng_str = str(row['longitude']).replace(',', '.')
                 
                 # Use id column from CSV as business ID
                 business_id = str(row['id'])
                 
-                # Extract SLS ID from Kabupaten, Kecamatan, Desa, SLS columns
-                # Format: [code]text -> extract code from brackets
+                # sls_id column (expected)
                 sls_id = ""
-                try:
-                    
-                    # Extract codes from each column
-                    kabupaten_code = ""
-                    kecamatan_code = ""
-                    desa_code = ""
-                    sls_code = ""
-                    
-                    if pd.notna(row.get('Kabupaten')):
-                        match = re.search(r'\[(\d+)\]', str(row['Kabupaten']))
-                        if match:
-                            kabupaten_code = match.group(1)
-                    
-                    if pd.notna(row.get('Kecamatan')):
-                        match = re.search(r'\[(\d+)\]', str(row['Kecamatan']))
-                        if match:
-                            kecamatan_code = match.group(1)
-                    
-                    if pd.notna(row.get('Desa')):
-                        match = re.search(r'\[(\d+)\]', str(row['Desa']))
-                        if match:
-                            desa_code = match.group(1)
-                    
-                    if pd.notna(row.get('SLS')):
-                        match = re.search(r'\[(\d+)\]', str(row['SLS']))
-                        if match:
-                            sls_code = match.group(1)
-                    
-                    # Combine codes: Kabupaten + Kecamatan + Desa + SLS
-                    sls_id = kabupaten_code + kecamatan_code + desa_code + sls_code
-                except Exception as e:
-                    print(f"⚠️ Error extracting SLS ID from row {idx}: {e}")
-                    sls_id = ""
+                if 'sls_id' in df.columns:
+                    sls_id = str(row.get('sls_id', '')) if pd.notna(row.get('sls_id')) else ""
+                else:
+                    print("\n⚠️ Column 'sls_id' not found in KDM data; leaving sls_id empty")
                 
+                user_id = pemilik.strip() if pemilik.strip() else business_id
+
                 business = Business(
                     id=business_id,
                     name=nama_usaha,
                     owner=pemilik,
                     latitude=float(lat_str),
                     longitude=float(lng_str),
-                    user_id=pemilik,  # Use owner as user_id for KDM
-                    sls_id=sls_id,  # Combined code from Kabupaten + Kecamatan + Desa + SLS
+                    user_id=user_id,
+                    sls_id=sls_id,
                     business_type='kdm',  # KDM source
-                    address=str(row.get('Alamat', '')),
+                    address=str(row.get('address', row.get('Alamat', ''))),
                     project_id=business_id,
                     source_row=idx,
                     iddesa=sls_id  # Use sls_id for iddesa
@@ -923,7 +952,7 @@ class NearbyBusinessFinder:
             print(f"  - SBR source folder: {EXCEL_SBR_FOLDER}")
             print(f"  - KDM source folder: {EXCEL_KDM_FOLDER}")
             print(f"  - Result file: {os.path.join(EXCEL_RESULT_FOLDER, EXCEL_RESULT_FILENAME)}")
-            print(f"  - SBR filter value: Sumber = '{FILTER_SUMBER_VALUE}'")
+            print(f"  - KDM regency_id filter: {sorted(ALLOWED_REGENCY_IDS)}")
             print(f"  - Search radius: {self.radius_meters} meters")
             print("-" * 60)
             
@@ -962,6 +991,7 @@ class NearbyBusinessFinder:
             unique_businesses_with_duplicates = set()
             validation_data = []
             seen_pairs = set()
+            compared_pairs = set()
             
             for i, business in enumerate(all_businesses):
                 if i % 100 == 0:
@@ -981,12 +1011,19 @@ class NearbyBusinessFinder:
                     duplicate_comparisons = []
                     
                     for nearby_business in nearby_businesses:
-                        # Skip comparison if both businesses are from KDM source
-                        if business.business_type == 'kdm' and nearby_business.business_type == 'kdm':
+                        # Skip comparison if both businesses are from the same source
+                        # (we only want cross-source matching: SBR↔KDM)
+                        if (business.business_type == 'kdm' and nearby_business.business_type == 'kdm') or \
+                           (business.business_type == 'sbr' and nearby_business.business_type == 'sbr'):
                             continue
                         
                         # Create a pair identifier to avoid duplicate comparisons
                         pair_id = tuple(sorted([business.id, nearby_business.id]))
+
+                        # Skip if this pair has already been compared (A↔B)
+                        if pair_id in compared_pairs:
+                            continue
+                        compared_pairs.add(pair_id)
                         
                         # Calculate precise distance for comparison if enabled
                         distance = calculate_precise_distance(
@@ -1166,8 +1203,8 @@ def main():
             print(f"  🔢 Processing limit: ❌ Disabled (will process all businesses)")
         
         print(f"\n📋 Data Sources:")
-        print(f"  📂 SBR (source folder): Excel files with Sumber = '{FILTER_SUMBER_VALUE}'")
-        print(f"  📂 KDM (source_kdm folder): CSV files with no filtering")
+        print(f"  📂 SBR ({EXCEL_SBR_FOLDER} folder): CSV files with no filtering")
+        print(f"  📂 KDM ({EXCEL_KDM_FOLDER} folder): CSV files filtered by regency_id")
         
         print(f"\n📋 Output Configuration:")
         print(f"  💾 Save to Excel file: ✅")
