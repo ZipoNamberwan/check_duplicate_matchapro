@@ -75,7 +75,7 @@ RADIUS_METERS = 70
 EXCEL_SBR_FOLDER = 'source_matcha_pro_all'  # Folder containing SBR CSV files
 EXCEL_KDM_FOLDER = 'source_kdm_all'  # Folder containing KDM CSV files
 EXCEL_RESULT_FOLDER = 'result'  # Folder to save results
-EXCEL_RESULT_FILENAME = 'result.xlsx'  # Output filename
+EXCEL_RESULT_FILENAME = 'kdm_plumkm.xlsx'  # Output filename
 
 # KDM Source filter configuration
 ALLOWED_REGENCY_IDS = {
