@@ -69,7 +69,6 @@ from dataclasses import dataclass
 from datetime import datetime
 import pytz
 from rtree import index
-from shapely.geometry import Point
 
 # Timezone configuration
 JAKARTA_TIMEZONE = pytz.timezone('Asia/Jakarta')
@@ -90,10 +89,6 @@ CSV_INPUT_FILE = os.path.join(os.path.dirname(__file__), 'result', 'match_sbr_kd
 
 # SLS ID Filter - set to specific SLS ID to filter businesses, or None to process all
 SLS_ID_FILTER = None  # Example: "123456" to filter by specific SLS ID
-
-# Debug mode - set to True to limit businesses for testing
-DEBUG_MODE = True
-DEBUG_LIMIT = 20000  # Number of businesses to process in debug mode
 
 # Processing limit configuration
 LIMIT_PROCESSING = False  # Set to True to limit the number of businesses to process
@@ -155,7 +150,7 @@ class Business:
     latitude: float
     longitude: float
     user_id: str  # Changed from int to str for UUID support
-    sls_id: str  # SLS ID for the business
+    area_id: str  # Area ID for the business
     business_type: str  # 'supplement' or 'market'
     project_id: str = ""  # Project ID for supplement businesses
     
@@ -262,7 +257,7 @@ class CSVBusinessLoader:
                             longitude=lng,
                             user_id=str((row.get('user_id') or '')).strip(),
                             project_id=str((row.get('project_id') or '')).strip(),
-                            sls_id=str((row.get('sls_id') or '')).strip(),
+                            area_id=str((row.get('sls_id') or '')).strip(),
                             business_type=business_type,
                         )
                     )
@@ -279,7 +274,7 @@ class CSVBusinessLoader:
                             longitude=lng,
                             user_id="",
                             project_id="",
-                            sls_id=str((row.get('sls_id') or '')).strip(),
+                            area_id=str((row.get('kode_wilayah') or '')).strip(),
                             business_type="sbr",
                         )
                     )
@@ -381,6 +376,11 @@ def extract_owner_from_name(name: str) -> tuple[str, str]:
     
     # No owner found
     return name.strip(), ""
+
+
+def make_unordered_pair_key(id1: str, id2: str) -> frozenset[str]:
+    """Return an order-insensitive key so (A,B) == (B,A)."""
+    return frozenset((id1, id2))
 
 # =====================================================================
 # TEXT NORMALIZATION AND SIMILARITY UTILITIES
@@ -960,7 +960,7 @@ class NearbyBusinessFinder:
 
             # Apply SLS ID filter if specified
             if SLS_ID_FILTER:
-                all_businesses = [b for b in all_businesses if b.sls_id == SLS_ID_FILTER]
+                all_businesses = [b for b in all_businesses if b.area_id == SLS_ID_FILTER]
             
             if not all_businesses:
                 print("⚠️ No businesses found. Exiting.")
@@ -998,16 +998,9 @@ class NearbyBusinessFinder:
             # CSV mode: start fresh each run (no DB state)
             compared_pairs = set()
             
-            skipped_comparisons = 0  # Track how many duplicate comparisons were avoided
             skipped_existing_pairs = 0  # Track how many pairs were skipped due to existing database records
             validation_data = []
-            businesses_marked_processed = 0  # Track how many businesses successfully marked as processed
-            businesses_failed_to_mark = 0  # Track how many businesses failed to mark as processed
-            business_updates = []  # Collect business IDs and types for batch update (used for both immediate batching and end-of-process batching)
-            
-            import random
-            random.seed(42)  # For reproducible results
-            
+  
             for i, business in enumerate(unprocessed_businesses):
                 if i % 1000 == 0:
                     elapsed = time.time() - search_start_time
@@ -1027,8 +1020,8 @@ class NearbyBusinessFinder:
                     
                     for nearby_business in nearby_businesses:
                         # Create a pair identifier to avoid duplicate comparisons
-                        # Use sorted tuple to ensure (A,B) and (B,A) are treated as the same pair
-                        pair_id = tuple(sorted([business.id, nearby_business.id]))
+                        # Order-insensitive key ensures (A,B) and (B,A) are treated as the same pair
+                        pair_id = make_unordered_pair_key(business.id, nearby_business.id)
                         
                         # Skip if this pair has already been compared (either in this run or previous runs)
                         if pair_id in compared_pairs:
@@ -1074,8 +1067,8 @@ class NearbyBusinessFinder:
                             validation_data.append({
                                 'center_business_id': comparison.business_a.id,
                                 'nearby_business_id': comparison.business_b.id,
-                                'center_sls_id': comparison.business_a.sls_id,
-                                'nearby_sls_id': comparison.business_b.sls_id,
+                                'center_area_id': comparison.business_a.area_id,
+                                'nearby_area_id': comparison.business_b.area_id,
                                 'center_business_source': comparison.business_a.business_type,
                                 'nearby_business_source': comparison.business_b.business_type,
                                 'center_business_name': comparison.business_a.name,
@@ -1147,7 +1140,6 @@ class NearbyBusinessFinder:
             print(f"  - Weak duplicate pairs found: {total_duplicates['weak']:,}")
             print(f"  - Not duplicate pairs: {total_duplicates['not_duplicate']:,}")
             print(f"  - Total comparison pairs: {total_matches:,}")
-            print(f"  - Skipped redundant comparisons: {skipped_comparisons:,}")
             print(f"  - Skipped existing database pairs: {skipped_existing_pairs:,}")
             print(f"  - Unique businesses with duplicates: {len(unique_businesses_with_duplicates):,}")
             print(f"  - Business duplicate rate: {len(unique_businesses_with_duplicates) / len(unprocessed_businesses) * 100:.1f}% ({len(unique_businesses_with_duplicates)} of {len(unprocessed_businesses)} unprocessed businesses)" if len(unprocessed_businesses) > 0 else "  - Business duplicate rate: 0%")
@@ -1155,13 +1147,12 @@ class NearbyBusinessFinder:
                 print(f"  - Pair duplicate rate: {(total_duplicates['strong'] + total_duplicates['weak']) / total_matches * 100:.1f}% (pairs that are duplicates)")
             
             print(f"\n⚡ Optimization:")
-            total_skipped = skipped_comparisons + skipped_existing_pairs
+            total_skipped = skipped_existing_pairs
             if total_skipped > 0:
                 total_potential_comparisons = total_matches + total_skipped
                 efficiency_gain = (total_skipped / total_potential_comparisons) * 100
                 print(f"  - Efficiency gain: {efficiency_gain:.1f}% (avoided {total_skipped:,} redundant/duplicate comparisons)")
-                print(f"  - Skipped within-run duplicates: {skipped_comparisons:,}")
-                print(f"  - Skipped cross-run duplicates: {skipped_existing_pairs:,}")
+                print(f"  - Skipped duplicate pairs: {skipped_existing_pairs:,}")
                 print(f"  - Total potential comparisons: {total_potential_comparisons:,}")
             else:
                 print(f"  - No redundant comparisons found (optimal case)")
@@ -1212,9 +1203,6 @@ def main():
         if SLS_ID_FILTER:
             print(f"🎯 Filtering by SLS ID: {SLS_ID_FILTER}")
         
-        if DEBUG_MODE:
-            print(f"🐛 DEBUG MODE: Processing only {DEBUG_LIMIT:,} businesses for testing")
-        
         # Display current algorithm configuration
         print(f"\n📋 Duplicate Detection Algorithm:")
         print(f"  1. Name & owner both high similarity → strong_duplicate")
@@ -1223,13 +1211,6 @@ def main():
         print(f"  4. Name high, owner empty → advanced step (common words filtering)")
         print(f"  5. Name low, owner empty → not_duplicate")
         print(f"  📝 Similarity threshold: {SIMILARITY_THRESHOLD}")
-        
-        # Display common words configuration
-        if USE_COMMON_WORDS_FILTERING:
-            common_words_count = len(CommonWordsManager.get_common_words()) if hasattr(CommonWordsManager, 'get_common_words') else 'unknown'
-            print(f"  📝 Common words filtering enabled ({common_words_count} words loaded)")
-        else:
-            print(f"  📝 Common words filtering disabled (using full text comparison)")
         
         # Display distance calculation configuration
         if CALCULATE_PRECISE_DISTANCE:
@@ -1262,9 +1243,9 @@ def main():
             
         if SAVE_RESULTS_TO_FILE:
             if INCLUDE_NOT_DUPLICATES_IN_OUTPUT:
-                print(f"  � Content: All results (duplicates + not duplicates)")
+                print(f"  Content: All results (duplicates + not duplicates)")
             else:
-                print(f"  � Content: Only duplicates (strong + weak duplicates)")
+                print(f"  Content: Only duplicates (strong + weak duplicates)")
         
         print("")
         

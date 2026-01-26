@@ -52,7 +52,6 @@ import re
 import pandas as pd
 from dotenv import load_dotenv
 from rtree import index
-from shapely.geometry import Point
 
 # Load environment variables
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
