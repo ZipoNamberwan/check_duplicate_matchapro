@@ -5,3 +5,4 @@ source_kdm_all/*
 source_matcha_pro_all/*
 result/*
 .env
+__pycache__
