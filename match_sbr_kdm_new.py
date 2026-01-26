@@ -34,7 +34,7 @@ RESULT_FILENAME = "match_sbr_kdm.csv"
 # If True, write output into multiple CSVs under result/split_regency/
 # named match_sbr_kdm_regency_<XXXX>.csv based on kode_wilayah[:4] (regency code).
 # If False, write a single combined CSV at result/match_sbr_kdm.csv.
-SPLIT_OUTPUT_BY_REGENCY = True
+SPLIT_OUTPUT_BY_REGENCY = False
 
 
 # Source 1 (SBR) expected output columns
@@ -52,6 +52,7 @@ SOURCE1_OUTPUT_COLUMNS: List[str] = [
 # NOTE: `id` is renamed to `idkendedes` in output
 SOURCE2_OUTPUT_COLUMNS: List[str] = [
 	"idkendedes",
+	"name",
 	"sls_id",
 	"owner",
 	"user_id",
