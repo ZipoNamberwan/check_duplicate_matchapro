@@ -3,6 +3,8 @@ source_kdm/*
 source_gc_update/*
 source_kdm_all/*
 source_matcha_pro_all/*
+source_identify_sls/*
+source_geojson/*
 result/*
 .env
 __pycache__
