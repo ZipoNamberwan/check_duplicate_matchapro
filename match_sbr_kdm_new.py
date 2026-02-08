@@ -34,7 +34,11 @@ RESULT_FILENAME = "match_sbr_kdm.csv"
 # If True, write output into multiple CSVs under result/split_regency/
 # named match_sbr_kdm_regency_<XXXX>.csv based on kode_wilayah[:4] (regency code).
 # If False, write a single combined CSV at result/match_sbr_kdm.csv.
-SPLIT_OUTPUT_BY_REGENCY = False
+SPLIT_OUTPUT_BY_REGENCY = True
+
+# If True, include SBR rows with invalid coordinates in the output.
+# If False, only include SBR rows with valid (non-empty) coordinates.
+INCLUDE_INVALID_COORDINATES = True
 
 
 # Source 1 (SBR) expected output columns
@@ -45,7 +49,7 @@ SOURCE1_OUTPUT_COLUMNS: List[str] = [
 	"latitude",
 	"longitude",
 	"sumber_data",
-	"is_coordinate_valid",
+	"is_sbr_coordinate_valid",
 ]
 
 # Source 2 (KDM) expected output columns
@@ -366,7 +370,12 @@ def main() -> None:
 	for chunk in iter_source1_chunks(base_dir):
 		lat_raw = chunk["latitude"].map(_as_str).str.strip()
 		lon_raw = chunk["longitude"].map(_as_str).str.strip()
-		sbr_filtered = chunk[(lat_raw != "") & (lon_raw != "")].copy()
+		
+		if INCLUDE_INVALID_COORDINATES:
+			sbr_filtered = chunk.copy()
+		else:
+			sbr_filtered = chunk[(lat_raw != "") & (lon_raw != "")].copy()
+		
 		if sbr_filtered.empty:
 			continue
 
@@ -377,32 +386,58 @@ def main() -> None:
 		sbr_filtered["longitude"] = lon_fixed.map(lambda t: t[0])
 		sbr_filtered["__lat_float"] = lat_fixed.map(lambda t: t[1])
 		sbr_filtered["__lon_float"] = lon_fixed.map(lambda t: t[1])
-		sbr_filtered["is_coordinate_valid"] = lat_fixed.map(lambda t: t[2]) & lon_fixed.map(lambda t: t[2])
+		sbr_filtered["is_sbr_coordinate_valid"] = lat_fixed.map(lambda t: t[2]) & lon_fixed.map(lambda t: t[2])
 
-		# Build match keys for SBR
-		sbr_filtered["__prefix10"] = sbr_filtered["kode_wilayah"].map(normalize_prefix10)
-		sbr_filtered["__name_norm"] = sbr_filtered["nama_usaha"].map(normalize_name)
-		sbr_filtered["__lat_key"] = sbr_filtered["__lat_float"].map(format_coord_key)
-		sbr_filtered["__lon_key"] = sbr_filtered["__lon_float"].map(format_coord_key)
+		# Split into valid and invalid coordinate rows for optimized matching
+		valid_coords_mask = sbr_filtered["is_sbr_coordinate_valid"]
+		sbr_valid = sbr_filtered[valid_coords_mask].copy()
+		sbr_invalid = sbr_filtered[~valid_coords_mask].copy()
 
-		# Match: prefix10 + name + lat + lon
-		if kdm_for_join is None:
-			merged = sbr_filtered.copy()
+		merged_parts = []
+
+		# Process valid coordinates: perform matching
+		if not sbr_valid.empty:
+			# Build match keys for valid SBR rows only
+			sbr_valid["__prefix10"] = sbr_valid["kode_wilayah"].map(normalize_prefix10)
+			sbr_valid["__name_norm"] = sbr_valid["nama_usaha"].map(normalize_name)
+			sbr_valid["__lat_key"] = sbr_valid["__lat_float"].map(format_coord_key)
+			sbr_valid["__lon_key"] = sbr_valid["__lon_float"].map(format_coord_key)
+
+			# Match: prefix10 + name + lat + lon
+			if kdm_for_join is None:
+				merged_valid = sbr_valid.copy()
+				for col in SOURCE2_OUTPUT_COLUMNS:
+					merged_valid[col] = ""
+			else:
+				merged_valid = sbr_valid.merge(
+					kdm_for_join,
+					how="left",
+					left_on=["__prefix10", "__name_norm", "__lat_key", "__lon_key"],
+					right_on=["__prefix10", "__name_norm", "__lat_key", "__lon_key"],
+					suffixes=("", "_kdm"),
+				)
+
+				merged_valid = merged_valid.rename(columns={"id": "idkendedes"})
+				for col in SOURCE2_OUTPUT_COLUMNS:
+					if col not in merged_valid.columns:
+						merged_valid[col] = ""
+			
+			merged_parts.append(merged_valid)
+
+		# Process invalid coordinates: skip matching, just add empty KDM columns
+		if not sbr_invalid.empty:
+			merged_invalid = sbr_invalid.copy()
 			for col in SOURCE2_OUTPUT_COLUMNS:
-				merged[col] = ""
+				merged_invalid[col] = ""
+			merged_parts.append(merged_invalid)
+
+		# Combine valid and invalid results
+		if len(merged_parts) == 0:
+			continue
+		elif len(merged_parts) == 1:
+			merged = merged_parts[0]
 		else:
-			merged = sbr_filtered.merge(
-				kdm_for_join,
-				how="left",
-				left_on=["__prefix10", "__name_norm", "__lat_key", "__lon_key"],
-				right_on=["__prefix10", "__name_norm", "__lat_key", "__lon_key"],
-				suffixes=("", "_kdm"),
-			)
-
-			merged = merged.rename(columns={"id": "idkendedes"})
-			for col in SOURCE2_OUTPUT_COLUMNS:
-				if col not in merged.columns:
-					merged[col] = ""
+			merged = pd.concat(merged_parts, ignore_index=True)
 
 		# Ensure source1 output columns exist
 		if "sumber_data" not in merged.columns:
