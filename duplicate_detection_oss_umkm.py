@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 
 
-DATA_PATH = Path("source_matcha_pro_all") / "combined_data.csv"
+DATA_PATH = Path("result") / "match_sbr_kdm.csv"
 OUTPUT_PATH = Path("result") / "duplicate_oss_umkm.csv"
 
 
@@ -27,6 +27,13 @@ def extract_owner(nama_usaha: str | float | None) -> str | None:
 	owner = next((grp for grp in match.groups() if grp), "")
 	owner = owner.strip()
 	return owner or None
+
+
+def extract_owner_from_daerah(row: pd.Series) -> str | None:
+	owner_value = row.get("owner")
+	if isinstance(owner_value, str) and owner_value.strip():
+		return owner_value.strip()
+	return extract_owner(row.get("name"))
 
 
 def normalize_text(value: str | float | None) -> str | None:
@@ -54,6 +61,7 @@ def main() -> None:
 	mask_umkm = data["sumber_data_clean"] == "PL-KUMKM 2023"
 	mask_oss = data["sumber_data_clean"].str.contains("OSS", na=False)
 	mask_blank = data["sumber_data_clean"] == ""
+	mask_daerah = data["sumber_data_clean"].str.contains("daerah", case=False, na=False)
 
 	umkm = data[mask_umkm].copy()
 	umkm["owner"] = umkm["nama_usaha"].apply(extract_owner)
@@ -69,6 +77,11 @@ def main() -> None:
 	oss["nama_usaha_norm"] = oss["nama_usaha"].apply(normalize_text)
 	oss["owner"] = None
 	oss = oss[oss["nama_usaha_norm"].notna()].copy()
+
+	daerah = data[mask_daerah].copy()
+	daerah["owner"] = daerah.apply(extract_owner_from_daerah, axis=1)
+	daerah["owner_norm"] = daerah["owner"].apply(normalize_text)
+	daerah = daerah[daerah["owner_norm"].notna()].copy()
 
 	def build_pair(
 		left_df: pd.DataFrame,
@@ -92,6 +105,9 @@ def main() -> None:
 			build_pair(umkm, oss, "owner_norm", "nama_usaha_norm", "UMKM_vs_OSS"),
 			build_pair(blank, oss, "owner_norm", "nama_usaha_norm", "BLANK_vs_OSS"),
 			build_pair(umkm, blank, "owner_norm", "owner_norm", "UMKM_vs_BLANK"),
+			build_pair(daerah, oss, "owner_norm", "nama_usaha_norm", "DAERAH_vs_OSS"),
+			build_pair(daerah, umkm, "owner_norm", "owner_norm", "DAERAH_vs_UMKM"),
+			build_pair(daerah, blank, "owner_norm", "owner_norm", "DAERAH_vs_BLANK"),
 		],
 		ignore_index=True,
 	)

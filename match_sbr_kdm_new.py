@@ -34,7 +34,7 @@ RESULT_FILENAME = "match_sbr_kdm.csv"
 # If True, write output into multiple CSVs under result/split_regency/
 # named match_sbr_kdm_regency_<XXXX>.csv based on kode_wilayah[:4] (regency code).
 # If False, write a single combined CSV at result/match_sbr_kdm.csv.
-SPLIT_OUTPUT_BY_REGENCY = True
+SPLIT_OUTPUT_BY_REGENCY = False
 
 # If True, include SBR rows with invalid coordinates in the output.
 # If False, only include SBR rows with valid (non-empty) coordinates.
@@ -45,6 +45,7 @@ INCLUDE_INVALID_COORDINATES = True
 SOURCE1_OUTPUT_COLUMNS: List[str] = [
 	"idsbr",
 	"nama_usaha",
+	"alamat_usaha",
 	"kode_wilayah",
 	"latitude",
 	"longitude",
@@ -169,7 +170,7 @@ def iter_source1_chunks(base_dir: str, chunksize: int = 250_000) -> Iterable[pd.
 	if not files:
 		raise FileNotFoundError(f"No CSV files found in {folder}")
 
-	wanted = list(dict.fromkeys(SOURCE1_REQUIRED_COLUMNS + ["sumber_data"]))
+	wanted = list(dict.fromkeys(SOURCE1_REQUIRED_COLUMNS + ["sumber_data", "alamat_usaha"]))
 	for path in files:
 		header = pd.read_csv(path, nrows=0, low_memory=False)
 		missing = [c for c in SOURCE1_REQUIRED_COLUMNS if c not in header.columns]
@@ -190,6 +191,8 @@ def iter_source1_chunks(base_dir: str, chunksize: int = 250_000) -> Iterable[pd.
 			chunk["__source_file"] = os.path.basename(path)
 			if "sumber_data" not in chunk.columns:
 				chunk["sumber_data"] = "sbr"
+			if "alamat_usaha" not in chunk.columns:
+				chunk["alamat_usaha"] = ""
 			yield chunk
 
 
