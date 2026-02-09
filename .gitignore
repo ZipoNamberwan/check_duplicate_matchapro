@@ -6,5 +6,6 @@ source_matcha_pro_all/*
 source_identify_sls/*
 source_geojson/*
 result/*
+gc_transform/*
 .env
 __pycache__
