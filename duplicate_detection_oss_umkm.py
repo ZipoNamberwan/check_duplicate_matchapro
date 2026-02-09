@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from difflib import SequenceMatcher
 from pathlib import Path
 
 import pandas as pd
@@ -33,6 +34,14 @@ def normalize_text(value: str | float | None) -> str | None:
 		return None
 	cleaned = re.sub(r"\s+", " ", value).strip().lower()
 	return cleaned or None
+
+
+def text_similarity(left: str | float | None, right: str | float | None) -> float:
+	left_norm = normalize_text(left)
+	right_norm = normalize_text(right)
+	if not left_norm or not right_norm:
+		return 0.0
+	return SequenceMatcher(None, left_norm, right_norm).ratio()
 
 
 def main() -> None:
@@ -87,6 +96,11 @@ def main() -> None:
 		ignore_index=True,
 	)
 
+	merged["alamat_similarity"] = merged.apply(
+		lambda row: text_similarity(row.get("alamat_usaha_a"), row.get("alamat_usaha_b")),
+		axis=1,
+	)
+
 	columns = [
 		"pair_type",
 		"kode_wilayah",
@@ -100,6 +114,7 @@ def main() -> None:
 		"owner_b",
 		"alamat_usaha_b",
 		"sumber_data_b",
+		"alamat_similarity",
 	]
 	output = merged.reindex(columns=columns)
 
