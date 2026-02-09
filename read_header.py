@@ -1,6 +1,6 @@
 import csv
 
-with open("result/match_sbr_kdm.csv", newline="", encoding="utf-8") as f:
+with open("source_matcha_pro_all/combined_data.csv", newline="", encoding="utf-8") as f:
     reader = csv.reader(f)
     header = next(reader)
 
