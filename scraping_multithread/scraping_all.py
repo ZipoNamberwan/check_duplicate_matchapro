@@ -36,13 +36,13 @@ HEADERS = {
 
 # Payload dasar
 BASE_PAYLOAD = {
-    "_token": "",  # Will be set automatically
+    "_token": "", # Will be set automatically
     "start": 0,
-    "length": 1000,           # Kurangi dari 2000 untuk menghindari response terpotong
+    "length": 1000, # Kurangi dari 2000 untuk menghindari response terpotong
     "nama_usaha": "",
     "alamat_usaha": "",
-    "provinsi": "",        # akan diisi dari parsing cari_kode.htm
-    "kabupaten": "",      # akan diisi dari parsing cari_kode.htm
+    "provinsi": "", # akan diisi dari parsing cari_kode.htm
+    "kabupaten": "", # akan diisi dari parsing cari_kode.htm
     "kecamatan": "",
     "desa": "",
     "status_filter": "semua",
@@ -54,9 +54,9 @@ BASE_PAYLOAD = {
 }
 
 # Nama file output
-OUTPUT_FOLDER = "result_per_kabupaten"
-OUTPUT_EXCEL = "direktori_usaha_full_all_columns_2026.xlsx"
-OUTPUT_CSV_FALLBACK = "direktori_usaha_full_all_columns_2026.csv"
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+OUTPUT_FOLDER = os.path.join(ROOT_DIR, "source_matcha_pro_all")
+OUTPUT_CSV_FALLBACK = os.path.join(OUTPUT_FOLDER, "combined_data.csv")
 
 DELAY_BETWEEN_REQUEST = 1.3     # detik, jangan terlalu kecil
 MAX_WORKERS = 5  # Jumlah thread concurrent, sesuaikan dengan kemampuan server
@@ -65,8 +65,47 @@ MAX_WORKERS = 5  # Jumlah thread concurrent, sesuaikan dengan kemampuan server
 print_lock = Lock()
 
 # Global variables untuk provinsi dan kabupaten list
-kabupaten_list = []
-kode_provinsi = ""
+KABUPATEN_LIST = {
+    # "2389": "[01] PACITAN",
+    # "2390": "[02] PONOROGO",
+    # "2391": "[03] TRENGGALEK",
+    # "2392": "[04] TULUNGAGUNG",
+    # "2393": "[05] BLITAR",
+    # "2394": "[06] KEDIRI",
+    # "2395": "[07] MALANG",
+    # "2396": "[08] LUMAJANG",
+    "2397": "[09] JEMBER",
+    # "2398": "[10] BANYUWANGI",
+    # "2399": "[11] BONDOWOSO",
+    # "2400": "[12] SITUBONDO",
+    # "2401": "[13] PROBOLINGGO",
+    # "2402": "[14] PASURUAN",
+    "2403": "[15] SIDOARJO",
+    # "2404": "[16] MOJOKERTO",
+    # "2405": "[17] JOMBANG",
+    # "2406": "[18] NGANJUK",
+    # "2407": "[19] MADIUN",
+    # "2408": "[20] MAGETAN",
+    # "2409": "[21] NGAWI",
+    # "2410": "[22] BOJONEGORO",
+    # "2411": "[23] TUBAN",
+    # "2412": "[24] LAMONGAN",
+    "2413": "[25] GRESIK",
+    # "2414": "[26] BANGKALAN",
+    # "2415": "[27] SAMPANG",
+    "2416": "[28] PAMEKASAN",
+    # "2417": "[29] SUMENEP",
+    # "2418": "[71] KEDIRI",
+    # "2419": "[72] BLITAR",
+    # "2420": "[73] MALANG",
+    # "2421": "[74] PROBOLINGGO",
+    # "2422": "[75] PASURUAN",
+    # "2423": "[76] MOJOKERTO",
+    # "2424": "[77] MADIUN",
+    # "2425": "[78] SURABAYA",
+    # "2426": "[79] BATU",
+}
+KODE_PROVINSI = 120
 # ------------------------------------------------------
 
 
@@ -108,9 +147,25 @@ def get_kabupaten_list(html_content):
     return kabupaten_list
 
 
+def normalize_kabupaten_list(items):
+    """Normalize kabupaten list into list of dicts with kode/nama."""
+    if not items:
+        return []
+    if isinstance(items, dict):
+        return [{"kode": str(k).strip(), "nama": str(v).strip()} for k, v in items.items() if str(k).strip()]
+    if isinstance(items[0], dict):
+        return items
+    normalized = []
+    for item in items:
+        kode = str(item).strip()
+        if kode:
+            normalized.append({"kode": kode, "nama": f"Kabupaten {kode}"})
+    return normalized
+
+
 def process_kabupaten(kode_kab, nama_kab):
     """Process all data for one kabupaten"""
-    global kode_provinsi
+    global KODE_PROVINSI
     
     with print_lock:
         print(f"\n{'='*70}")
@@ -211,7 +266,7 @@ def process_kabupaten(kode_kab, nama_kab):
 
 
 def main():
-    global kabupaten_list, kode_provinsi
+    global KABUPATEN_LIST, KODE_PROVINSI
     
     print("Melakukan login otomatis...\n")
 
@@ -253,43 +308,54 @@ def main():
         HEADERS["cookie"] = cookie_string
         print("Cookies diperoleh dan diset ke headers")
 
-        # Parse HTML dari request ke direktori-usaha untuk mendapatkan kode provinsi dan kabupaten
-        url_direktori = "https://matchapro.web.bps.go.id/direktori-usaha"
-        try:
-            response = requests.get(url_direktori, headers=HEADERS, timeout=20)
-            response.raise_for_status()
-            html_content = response.text
+        # Jika kabupaten sudah diset manual, lewati parsing HTML
+        if KABUPATEN_LIST:
+            KABUPATEN_LIST = normalize_kabupaten_list(KABUPATEN_LIST)
+            BASE_PAYLOAD["provinsi"] = str(KODE_PROVINSI) if KODE_PROVINSI else ""
+            print(f"Kode provinsi: {BASE_PAYLOAD['provinsi']}")
+            print(f"\nMenggunakan kabupaten manual: {len(KABUPATEN_LIST)}")
+            for i, kab in enumerate(KABUPATEN_LIST[:5], 1):
+                print(f"  {i}. {kab['nama']} (Kode: {kab['kode']})")
+            if len(KABUPATEN_LIST) > 5:
+                print(f"  ... dan {len(KABUPATEN_LIST) - 5} kabupaten lainnya")
+        else:
+            # Parse HTML dari request ke direktori-usaha untuk mendapatkan kode provinsi dan kabupaten
+            url_direktori = "https://matchapro.web.bps.go.id/direktori-usaha"
+            try:
+                response = requests.get(url_direktori, headers=HEADERS, timeout=20)
+                response.raise_for_status()
+                html_content = response.text
+                
+                # Cari kode provinsi
+                prov_match = re.search(r'<select id="f_provinsi".*?<option value="(\d+)" selected>', html_content, re.DOTALL)
+                if prov_match:
+                    KODE_PROVINSI = prov_match.group(1)
+                else:
+                    KODE_PROVINSI = ""  # default
+                
+                # Update BASE_PAYLOAD provinsi
+                BASE_PAYLOAD["provinsi"] = KODE_PROVINSI
+                
+                print(f"Kode provinsi: {KODE_PROVINSI}")
+                
+                # Get list of kabupaten
+                KABUPATEN_LIST = get_kabupaten_list(html_content)
+                
+                if not KABUPATEN_LIST:
+                    print("Gagal mendapatkan daftar kabupaten")
+                    browser.close()
+                    return
+                
+                print(f"\nDitemukan {len(KABUPATEN_LIST)} kabupaten:")
+                for i, kab in enumerate(KABUPATEN_LIST[:5], 1):  # Show first 5
+                    print(f"  {i}. {kab['nama']} (Kode: {kab['kode']})")
+                if len(KABUPATEN_LIST) > 5:
+                    print(f"  ... dan {len(KABUPATEN_LIST) - 5} kabupaten lainnya")
             
-            # Cari kode provinsi
-            prov_match = re.search(r'<select id="f_provinsi".*?<option value="(\d+)" selected>', html_content, re.DOTALL)
-            if prov_match:
-                kode_provinsi = prov_match.group(1)
-            else:
-                kode_provinsi = ""  # default
-            
-            # Update BASE_PAYLOAD provinsi
-            BASE_PAYLOAD["provinsi"] = kode_provinsi
-            
-            print(f"Kode provinsi: {kode_provinsi}")
-            
-            # Get list of kabupaten
-            kabupaten_list = get_kabupaten_list(html_content)
-            
-            if not kabupaten_list:
-                print("Gagal mendapatkan daftar kabupaten")
+            except Exception as e:
+                print(f"Error saat parsing HTML dari direktori-usaha: {e}")
                 browser.close()
                 return
-            
-            print(f"\nDitemukan {len(kabupaten_list)} kabupaten:")
-            for i, kab in enumerate(kabupaten_list[:5], 1):  # Show first 5
-                print(f"  {i}. {kab['nama']} (Kode: {kab['kode']})")
-            if len(kabupaten_list) > 5:
-                print(f"  ... dan {len(kabupaten_list) - 5} kabupaten lainnya")
-        
-        except Exception as e:
-            print(f"Error saat parsing HTML dari direktori-usaha: {e}")
-            browser.close()
-            return
 
     except Exception as e:
         print(f"Error saat login atau ekstraksi: {e}")
@@ -310,7 +376,7 @@ def main():
         # Submit all kabupaten tasks
         future_to_kab = {
             executor.submit(process_kabupaten, kab['kode'], kab['nama']): kab 
-            for kab in kabupaten_list
+            for kab in KABUPATEN_LIST
         }
         
         # Process completed tasks
@@ -337,23 +403,22 @@ def main():
         for r in sorted(results, key=lambda x: x['nama']):
             print(f"  - {r['nama']}: {r['records']:,} record -> {r['file']}")
         
-        # Optional: Combine all files into one
-        combine = input("\nGabungkan semua file menjadi satu? (y/n): ").strip().lower()
-        if combine == 'y':
-            print("\nMenggabungkan semua file...")
-            all_dfs = []
-            for r in results:
-                try:
-                    df = pd.read_csv(r['file'])
-                    all_dfs.append(df)
-                except Exception as e:
-                    print(f"Error reading {r['file']}: {e}")
-            
-            if all_dfs:
-                combined_df = pd.concat(all_dfs, ignore_index=True)
-                combined_file = OUTPUT_CSV_FALLBACK
-                combined_df.to_csv(combined_file, index=False, encoding='utf-8-sig', quoting=csv.QUOTE_ALL)
-                print(f"File gabungan disimpan: {combined_file} ({len(combined_df):,} record)")
+        # Combine all files into one (auto)
+        print("\nMenggabungkan semua file...")
+        all_dfs = []
+        for r in results:
+            try:
+                df = pd.read_csv(r['file'])
+                all_dfs.append(df)
+            except Exception as e:
+                print(f"Error reading {r['file']}: {e}")
+        
+        if all_dfs:
+            combined_df = pd.concat(all_dfs, ignore_index=True)
+            combined_file = OUTPUT_CSV_FALLBACK
+            os.makedirs(os.path.dirname(combined_file), exist_ok=True)
+            combined_df.to_csv(combined_file, index=False, encoding='utf-8-sig', quoting=csv.QUOTE_ALL)
+            print(f"File gabungan disimpan: {combined_file} ({len(combined_df):,} record)")
     else:
         print("\nTidak ada data yang berhasil didownload")
     
