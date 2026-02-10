@@ -74,26 +74,26 @@ KABUPATEN_LIST = {
     # "2394": "[06] KEDIRI",
     # "2395": "[07] MALANG",
     # "2396": "[08] LUMAJANG",
-    "2397": "[09] JEMBER",
+    # "2397": "[09] JEMBER",
     # "2398": "[10] BANYUWANGI",
     # "2399": "[11] BONDOWOSO",
     # "2400": "[12] SITUBONDO",
     # "2401": "[13] PROBOLINGGO",
     # "2402": "[14] PASURUAN",
-    "2403": "[15] SIDOARJO",
+    # "2403": "[15] SIDOARJO",
     # "2404": "[16] MOJOKERTO",
     # "2405": "[17] JOMBANG",
-    # "2406": "[18] NGANJUK",
+    "2406": "[18] NGANJUK",
     # "2407": "[19] MADIUN",
     # "2408": "[20] MAGETAN",
     # "2409": "[21] NGAWI",
     # "2410": "[22] BOJONEGORO",
     # "2411": "[23] TUBAN",
     # "2412": "[24] LAMONGAN",
-    "2413": "[25] GRESIK",
+    # "2413": "[25] GRESIK",
     # "2414": "[26] BANGKALAN",
-    # "2415": "[27] SAMPANG",
-    "2416": "[28] PAMEKASAN",
+    "2415": "[27] SAMPANG",
+    # "2416": "[28] PAMEKASAN",
     # "2417": "[29] SUMENEP",
     # "2418": "[71] KEDIRI",
     # "2419": "[72] BLITAR",
@@ -408,7 +408,7 @@ def main():
         all_dfs = []
         for r in results:
             try:
-                df = pd.read_csv(r['file'])
+                df = pd.read_csv(r['file'], low_memory=False)
                 all_dfs.append(df)
             except Exception as e:
                 print(f"Error reading {r['file']}: {e}")
