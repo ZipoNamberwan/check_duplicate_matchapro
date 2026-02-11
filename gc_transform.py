@@ -36,6 +36,9 @@ def process_vlookup_with_chunks():
     all_idsbr = set()  # Collect all unique idsbr values across all files
     
     for source_file in source_files:
+        if "--v--" in source_file.name:
+            print(f"\nSkipping (no transform needed): {source_file.name}")
+            continue
         print(f"\nLoading: {source_file.name}")
         
         # Read source file

@@ -50,6 +50,8 @@ SOURCE1_OUTPUT_COLUMNS: List[str] = [
 	"latitude",
 	"longitude",
 	"sumber_data",
+	"gcs_result",
+	"gc_username",
 	"is_sbr_coordinate_valid",
 ]
 
@@ -170,7 +172,7 @@ def iter_source1_chunks(base_dir: str, chunksize: int = 250_000) -> Iterable[pd.
 	if not files:
 		raise FileNotFoundError(f"No CSV files found in {folder}")
 
-	wanted = list(dict.fromkeys(SOURCE1_REQUIRED_COLUMNS + ["sumber_data", "alamat_usaha"]))
+	wanted = list(dict.fromkeys(SOURCE1_REQUIRED_COLUMNS + SOURCE1_OUTPUT_COLUMNS))
 	for path in files:
 		header = pd.read_csv(path, nrows=0, low_memory=False)
 		missing = [c for c in SOURCE1_REQUIRED_COLUMNS if c not in header.columns]
