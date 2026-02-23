@@ -106,8 +106,13 @@ def process_vlookup_with_chunks():
     for source_file, df_source in source_data.items():
         print(f"\nProcessing: {source_file.name}")
         
+        # Prepare source columns for merge (include hasilgc for fallback if available)
+        source_merge_cols = ['idsbr']
+        if 'hasilgc' in df_source.columns:
+            source_merge_cols.append('hasilgc')
+
         # Perform VLOOKUP (merge) for this specific source file
-        df_result = df_source[['idsbr']].merge(
+        df_result = df_source[source_merge_cols].merge(
             df_lookup[['idsbr', 'perusahaan_id', 'latitude', 'longitude', 'gcs_result']],
             on='idsbr',
             how='left'
@@ -128,7 +133,12 @@ def process_vlookup_with_chunks():
         
         # Select and rename columns for output
         df_output = df_result[['idsbr', 'perusahaan_id', 'latitude', 'longitude']].copy()
-        df_output['hasilgc'] = hasilgc_value  # Fill with extracted value
+        if hasilgc_value:
+            df_output['hasilgc'] = hasilgc_value  # Fill with extracted value
+        elif 'hasilgc' in df_result.columns:
+            df_output['hasilgc'] = df_result['hasilgc']
+        else:
+            df_output['hasilgc'] = ''
         
         # Remove duplicates based on idsbr
         df_output = df_output.drop_duplicates(subset=['idsbr'])
