@@ -2,6 +2,68 @@ import pandas as pd
 import os
 from pathlib import Path
 
+
+def _is_valid_coordinate(value, coordinate_type):
+    if coordinate_type == 'lat':
+        return -90 <= value <= 90
+    return -180 <= value <= 180
+
+
+def _build_candidate(digits, integer_digits, is_negative):
+    if len(digits) <= integer_digits:
+        return None
+
+    candidate_str = f"{digits[:integer_digits]}.{digits[integer_digits:]}"
+    candidate = float(candidate_str)
+    return -candidate if is_negative else candidate
+
+
+def normalize_coordinate(value, coordinate_type):
+    """
+    Normalize coordinate value with this order:
+    1) trim spaces
+    2) repair malformed decimal placement when needed
+    3) replace comma decimal separator with point
+    """
+    if pd.isna(value):
+        return value
+
+    raw = str(value).strip()
+    if raw == '':
+        return ''
+
+    raw = raw.replace(',', '.')
+    is_negative = raw.startswith('-')
+
+    parsed_value = None
+    try:
+        parsed_value = float(raw)
+    except (TypeError, ValueError):
+        parsed_value = None
+
+    digits = ''.join(ch for ch in raw if ch.isdigit())
+
+    should_repair_even_if_valid = False
+    if coordinate_type == 'long' and parsed_value is not None and _is_valid_coordinate(parsed_value, 'long'):
+        integer_part = raw.split('.')[0].lstrip('+-')
+        if len(integer_part) in (1, 2) and len(digits) >= 3:
+            first_three = int(digits[:3])
+            if 100 <= first_three <= 180 and abs(parsed_value) < 100:
+                should_repair_even_if_valid = True
+
+    if parsed_value is not None and _is_valid_coordinate(parsed_value, coordinate_type) and not should_repair_even_if_valid:
+        return parsed_value
+
+    if digits:
+        integer_digit_options = [1, 2] if coordinate_type == 'lat' else [3, 2, 1]
+
+        for integer_digits in integer_digit_options:
+            candidate = _build_candidate(digits, integer_digits, is_negative)
+            if candidate is not None and _is_valid_coordinate(candidate, coordinate_type):
+                return candidate
+
+    return parsed_value if parsed_value is not None else raw
+
 def process_vlookup_with_chunks():
     """
     Process all Excel/CSV files in gc_transform/source folder.
@@ -139,6 +201,10 @@ def process_vlookup_with_chunks():
             df_output['hasilgc'] = df_result['hasilgc']
         else:
             df_output['hasilgc'] = ''
+
+        # Normalize latitude and longitude values
+        df_output['latitude'] = df_output['latitude'].apply(lambda x: normalize_coordinate(x, 'lat'))
+        df_output['longitude'] = df_output['longitude'].apply(lambda x: normalize_coordinate(x, 'long'))
         
         # Remove duplicates based on idsbr
         df_output = df_output.drop_duplicates(subset=['idsbr'])
