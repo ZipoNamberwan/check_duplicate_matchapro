@@ -20,6 +20,7 @@ import time
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 import pandas as pd
+from tqdm import tqdm
 
 
 # =====================================================================
@@ -30,6 +31,7 @@ SOURCE_1_FOLDER = "source_matcha_pro_all"
 SOURCE_2_FOLDER = "source_kdm_all"
 RESULT_FOLDER = "result"
 RESULT_FILENAME = "match_sbr_kdm.csv"
+UNMATCHED_KDM_FILENAME = "kdm_not_matched.csv"
 
 # If True, write output into multiple CSVs under result/split_regency/
 # named match_sbr_kdm_regency_<XXXX>.csv based on kode_wilayah[:4] (regency code).
@@ -39,6 +41,9 @@ SPLIT_OUTPUT_BY_REGENCY = False
 # If True, include SBR rows with invalid coordinates in the output.
 # If False, only include SBR rows with valid (non-empty) coordinates.
 INCLUDE_INVALID_COORDINATES = True
+
+# If True, save Source 2 (KDM) rows that are not matched by any SBR row.
+SAVE_UNMATCHED_KDM = True
 
 
 # Source 1 (SBR) expected output columns
@@ -290,6 +295,7 @@ def main() -> None:
 	base_dir = os.path.dirname(os.path.abspath(__file__))
 	os.makedirs(os.path.join(base_dir, RESULT_FOLDER), exist_ok=True)
 	output_path = os.path.join(base_dir, RESULT_FOLDER, RESULT_FILENAME)
+	unmatched_kdm_output_path = os.path.join(base_dir, RESULT_FOLDER, UNMATCHED_KDM_FILENAME)
 	split_dir = os.path.join(base_dir, RESULT_FOLDER, "split_match_sbr_kdm")
 	if SPLIT_OUTPUT_BY_REGENCY:
 		os.makedirs(split_dir, exist_ok=True)
@@ -361,6 +367,8 @@ def main() -> None:
 	total_rows_written = 0
 	sbr_rows_matched = 0
 	sbr_rows_not_matched = 0
+	expected_rows_to_process = rows_total if INCLUDE_INVALID_COORDINATES else rows_with_coords
+	processed_rows = 0
 	matched_source2_id_hashes: Set[int] = set()
 	# How many Source-2 ids exist in the KDM slice we considered
 	if kdm_for_join is None:
@@ -372,133 +380,174 @@ def main() -> None:
 			kdm_for_join["id"].fillna("").map(_as_str).str.strip().replace("", pd.NA).nunique(dropna=True)
 		)
 
-	for chunk in iter_source1_chunks(base_dir):
-		lat_raw = chunk["latitude"].map(_as_str).str.strip()
-		lon_raw = chunk["longitude"].map(_as_str).str.strip()
-		
-		if INCLUDE_INVALID_COORDINATES:
-			sbr_filtered = chunk.copy()
-		else:
-			sbr_filtered = chunk[(lat_raw != "") & (lon_raw != "")].copy()
-		
-		if sbr_filtered.empty:
-			continue
-
-		# Validate/fix coordinates (comma->dot)
-		lat_fixed = sbr_filtered["latitude"].map(coerce_coordinate)
-		lon_fixed = sbr_filtered["longitude"].map(coerce_coordinate)
-		sbr_filtered["latitude"] = lat_fixed.map(lambda t: t[0])
-		sbr_filtered["longitude"] = lon_fixed.map(lambda t: t[0])
-		sbr_filtered["__lat_float"] = lat_fixed.map(lambda t: t[1])
-		sbr_filtered["__lon_float"] = lon_fixed.map(lambda t: t[1])
-		sbr_filtered["is_sbr_coordinate_valid"] = lat_fixed.map(lambda t: t[2]) & lon_fixed.map(lambda t: t[2])
-
-		# Split into valid and invalid coordinate rows for optimized matching
-		valid_coords_mask = sbr_filtered["is_sbr_coordinate_valid"]
-		sbr_valid = sbr_filtered[valid_coords_mask].copy()
-		sbr_invalid = sbr_filtered[~valid_coords_mask].copy()
-
-		merged_parts = []
-
-		# Process valid coordinates: perform matching
-		if not sbr_valid.empty:
-			# Build match keys for valid SBR rows only
-			sbr_valid["__prefix10"] = sbr_valid["kode_wilayah"].map(normalize_prefix10)
-			sbr_valid["__name_norm"] = sbr_valid["nama_usaha"].map(normalize_name)
-			sbr_valid["__lat_key"] = sbr_valid["__lat_float"].map(format_coord_key)
-			sbr_valid["__lon_key"] = sbr_valid["__lon_float"].map(format_coord_key)
-
-			# Match: prefix10 + name + lat + lon
-			if kdm_for_join is None:
-				merged_valid = sbr_valid.copy()
-				for col in SOURCE2_OUTPUT_COLUMNS:
-					merged_valid[col] = ""
-			else:
-				merged_valid = sbr_valid.merge(
-					kdm_for_join,
-					how="left",
-					left_on=["__prefix10", "__name_norm", "__lat_key", "__lon_key"],
-					right_on=["__prefix10", "__name_norm", "__lat_key", "__lon_key"],
-					suffixes=("", "_kdm"),
-				)
-
-				merged_valid = merged_valid.rename(columns={"id": "idkendedes"})
-				for col in SOURCE2_OUTPUT_COLUMNS:
-					if col not in merged_valid.columns:
-						merged_valid[col] = ""
+	with tqdm(total=expected_rows_to_process, desc="Matching progress", unit="row") as pbar:
+		for chunk in iter_source1_chunks(base_dir):
+			lat_raw = chunk["latitude"].map(_as_str).str.strip()
+			lon_raw = chunk["longitude"].map(_as_str).str.strip()
 			
-			merged_parts.append(merged_valid)
+			if INCLUDE_INVALID_COORDINATES:
+				sbr_filtered = chunk.copy()
+			else:
+				sbr_filtered = chunk[(lat_raw != "") & (lon_raw != "")].copy()
+			
+			if sbr_filtered.empty:
+				continue
 
-		# Process invalid coordinates: skip matching, just add empty KDM columns
-		if not sbr_invalid.empty:
-			merged_invalid = sbr_invalid.copy()
-			for col in SOURCE2_OUTPUT_COLUMNS:
-				merged_invalid[col] = ""
-			merged_parts.append(merged_invalid)
+			# Validate/fix coordinates (comma->dot)
+			lat_fixed = sbr_filtered["latitude"].map(coerce_coordinate)
+			lon_fixed = sbr_filtered["longitude"].map(coerce_coordinate)
+			sbr_filtered["latitude"] = lat_fixed.map(lambda t: t[0])
+			sbr_filtered["longitude"] = lon_fixed.map(lambda t: t[0])
+			sbr_filtered["__lat_float"] = lat_fixed.map(lambda t: t[1])
+			sbr_filtered["__lon_float"] = lon_fixed.map(lambda t: t[1])
+			sbr_filtered["is_sbr_coordinate_valid"] = lat_fixed.map(lambda t: t[2]) & lon_fixed.map(lambda t: t[2])
 
-		# Combine valid and invalid results
-		if len(merged_parts) == 0:
-			continue
-		elif len(merged_parts) == 1:
-			merged = merged_parts[0]
-		else:
-			merged = pd.concat(merged_parts, ignore_index=True)
+			# Split into valid and invalid coordinate rows for optimized matching
+			valid_coords_mask = sbr_filtered["is_sbr_coordinate_valid"]
+			sbr_valid = sbr_filtered[valid_coords_mask].copy()
+			sbr_invalid = sbr_filtered[~valid_coords_mask].copy()
 
-		# Ensure source1 output columns exist
-		if "sumber_data" not in merged.columns:
-			merged["sumber_data"] = "sbr"
+			merged_parts = []
 
-		# Final projection and append
-		for col in RESULT_COLUMNS:
-			if col not in merged.columns:
-				merged[col] = ""
+			# Process valid coordinates: perform matching
+			if not sbr_valid.empty:
+				# Build match keys for valid SBR rows only
+				sbr_valid["__prefix10"] = sbr_valid["kode_wilayah"].map(normalize_prefix10)
+				sbr_valid["__name_norm"] = sbr_valid["nama_usaha"].map(normalize_name)
+				sbr_valid["__lat_key"] = sbr_valid["__lat_float"].map(format_coord_key)
+				sbr_valid["__lon_key"] = sbr_valid["__lon_float"].map(format_coord_key)
 
-		result = merged[RESULT_COLUMNS].copy()
-		total_rows_written += len(result)
-		id_series = result["idkendedes"].fillna("").map(_as_str).str.strip()
-		matched_mask = id_series != ""
-		m = int(matched_mask.sum())
-		sbr_rows_matched += m
-		sbr_rows_not_matched += (len(result) - m)
-		if m:
-			# Track unique Source-2 IDs matched without storing full strings
-			for v in pd.unique(id_series[matched_mask]):
-				h = _hash64(str(v))
-				if h:
-					matched_source2_id_hashes.add(h)
+				# Match: prefix10 + name + lat + lon
+				if kdm_for_join is None:
+					merged_valid = sbr_valid.copy()
+					for col in SOURCE2_OUTPUT_COLUMNS:
+						merged_valid[col] = ""
+				else:
+					merged_valid = sbr_valid.merge(
+						kdm_for_join,
+						how="left",
+						left_on=["__prefix10", "__name_norm", "__lat_key", "__lon_key"],
+						right_on=["__prefix10", "__name_norm", "__lat_key", "__lon_key"],
+						suffixes=("", "_kdm"),
+					)
 
-		if not SPLIT_OUTPUT_BY_REGENCY:
-			result.to_csv(
-				output_path,
-				mode="w" if first_write else "a",
-				header=first_write,
-				index=False,
-				encoding="utf-8",
-			)
-			first_write = False
-		else:
-			regency = result["kode_wilayah"].fillna("").map(_as_str).str.strip().str[:4]
-			result = result.assign(__regency=regency)
-			for regency_value, part in result.groupby("__regency", dropna=False):
-				reg = _as_str(regency_value).strip()
-				if not reg:
-					reg = "____"
-				part = part.drop(columns=["__regency"])
-				part_path = os.path.join(split_dir, f"match_sbr_kdm_regency_{reg}.csv")
-				is_first = first_write_by_regency.get(reg, True)
-				part.to_csv(
-					part_path,
-					mode="w" if is_first else "a",
-					header=is_first,
+					merged_valid = merged_valid.rename(columns={"id": "idkendedes"})
+					for col in SOURCE2_OUTPUT_COLUMNS:
+						if col not in merged_valid.columns:
+							merged_valid[col] = ""
+			
+				merged_parts.append(merged_valid)
+
+			# Process invalid coordinates: skip matching, just add empty KDM columns
+			if not sbr_invalid.empty:
+				merged_invalid = sbr_invalid.copy()
+				for col in SOURCE2_OUTPUT_COLUMNS:
+					merged_invalid[col] = ""
+				merged_parts.append(merged_invalid)
+
+			# Combine valid and invalid results
+			if len(merged_parts) == 0:
+				continue
+			elif len(merged_parts) == 1:
+				merged = merged_parts[0]
+			else:
+				merged = pd.concat(merged_parts, ignore_index=True)
+
+			# Ensure source1 output columns exist
+			if "sumber_data" not in merged.columns:
+				merged["sumber_data"] = "sbr"
+
+			# Final projection and append
+			for col in RESULT_COLUMNS:
+				if col not in merged.columns:
+					merged[col] = ""
+
+			result = merged[RESULT_COLUMNS].copy()
+			total_rows_written += len(result)
+			id_series = result["idkendedes"].fillna("").map(_as_str).str.strip()
+			matched_mask = id_series != ""
+			m = int(matched_mask.sum())
+			sbr_rows_matched += m
+			sbr_rows_not_matched += (len(result) - m)
+			if m:
+				# Track unique Source-2 IDs matched without storing full strings
+				for v in pd.unique(id_series[matched_mask]):
+					h = _hash64(str(v))
+					if h:
+						matched_source2_id_hashes.add(h)
+
+			if not SPLIT_OUTPUT_BY_REGENCY:
+				result.to_csv(
+					output_path,
+					mode="w" if first_write else "a",
+					header=first_write,
 					index=False,
 					encoding="utf-8",
 				)
-				first_write_by_regency[reg] = False
+				first_write = False
+			else:
+				regency = result["kode_wilayah"].fillna("").map(_as_str).str.strip().str[:4]
+				result = result.assign(__regency=regency)
+				for regency_value, part in result.groupby("__regency", dropna=False):
+					reg = _as_str(regency_value).strip()
+					if not reg:
+						reg = "____"
+					part = part.drop(columns=["__regency"])
+					part_path = os.path.join(split_dir, f"match_sbr_kdm_regency_{reg}.csv")
+					is_first = first_write_by_regency.get(reg, True)
+					part.to_csv(
+						part_path,
+						mode="w" if is_first else "a",
+						header=is_first,
+						index=False,
+						encoding="utf-8",
+					)
+					first_write_by_regency[reg] = False
+
+			processed_rows += len(sbr_filtered)
+			if expected_rows_to_process > 0:
+				pbar.update(len(sbr_filtered))
+				pbar.set_postfix({"processed": f"{processed_rows:,}"})
 
 	if not SPLIT_OUTPUT_BY_REGENCY:
 		print(f"✅ Saved: {output_path}")
 	else:
 		print(f"✅ Saved split outputs under: {split_dir}")
+
+	if SAVE_UNMATCHED_KDM:
+		if kdm.empty:
+			unmatched_kdm = pd.DataFrame(columns=SOURCE2_NEEDED_COLUMNS + ["type", "__source_file"])
+		else:
+			unmatched_kdm = kdm.copy()
+			unmatched_kdm["__id_hash"] = unmatched_kdm["id"].fillna("").map(_as_str).str.strip().map(_hash64)
+			unmatched_kdm = unmatched_kdm[~unmatched_kdm["__id_hash"].isin(matched_source2_id_hashes)].copy()
+
+		# Keep relevant KDM source columns only
+		kdm_output_cols = [
+			"id",
+			"sls_id",
+			"owner",
+			"user_id",
+			"project_id",
+			"name",
+			"latitude",
+			"longitude",
+			"type",
+			"__source_file",
+		]
+		for col in kdm_output_cols:
+			if col not in unmatched_kdm.columns:
+				unmatched_kdm[col] = ""
+
+		unmatched_kdm[kdm_output_cols].to_csv(
+			unmatched_kdm_output_path,
+			index=False,
+			encoding="utf-8",
+		)
+		print(f"✅ Saved unmatched KDM: {unmatched_kdm_output_path} ({len(unmatched_kdm):,} rows)")
+	else:
+		print("ℹ️  SAVE_UNMATCHED_KDM=False, skip writing unmatched KDM file.")
+
 	print(f"✓ Output rows written: {total_rows_written:,}")
 	print(f"⏱️  Done in {time.time() - t0:.1f}s")
 
@@ -544,8 +593,10 @@ def main() -> None:
 	summary_df = pd.DataFrame(
 		[
 			{"metric": "split_output_by_regency", "value": bool(SPLIT_OUTPUT_BY_REGENCY)},
+			{"metric": "save_unmatched_kdm", "value": bool(SAVE_UNMATCHED_KDM)},
 			{"metric": "output_csv", "value": output_path if not SPLIT_OUTPUT_BY_REGENCY else ""},
 			{"metric": "output_split_dir", "value": split_dir if SPLIT_OUTPUT_BY_REGENCY else ""},
+			{"metric": "output_unmatched_kdm_csv", "value": unmatched_kdm_output_path if SAVE_UNMATCHED_KDM else ""},
 			{"metric": "sbr_rows_written_non_empty_coords", "value": total_rows_written},
 			{"metric": "sbr_rows_matched", "value": sbr_rows_matched},
 			{"metric": "sbr_rows_not_matched", "value": sbr_rows_not_matched},
