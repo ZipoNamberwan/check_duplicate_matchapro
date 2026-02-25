@@ -69,6 +69,11 @@ SOURCE2_OUTPUT_COLUMNS: List[str] = [
 	"owner",
 	"user_id",
 	"project_id",
+	"address",
+	"regency_name",
+	"subdistrict_name",
+	"village_name",
+	"sls_name",
 	"type",
 ]
 
@@ -92,6 +97,11 @@ SOURCE2_NEEDED_COLUMNS: List[str] = [
 	"user_id",
 	"project_id",
 	"name",
+	"address",
+	"regency_name",
+	"subdistrict_name",
+	"village_name",
+	"sls_name",
 	"latitude",
 	"longitude",
 ]
@@ -264,7 +274,20 @@ def iter_source2_filtered(base_dir: str, prefixes10: Set[str]) -> Iterable[pd.Da
 				chunk["owner"] = ""
 
 			# Ensure output columns exist even if absent
-			for col in ["user_id", "project_id", "sls_id", "id", "name", "latitude", "longitude"]:
+			for col in [
+				"user_id",
+				"project_id",
+				"sls_id",
+				"id",
+				"name",
+				"address",
+				"regency_name",
+				"subdistrict_name",
+				"village_name",
+				"sls_name",
+				"latitude",
+				"longitude",
+			]:
 				if col not in chunk.columns:
 					chunk[col] = ""
 
@@ -347,18 +370,28 @@ def main() -> None:
 	if kdm.empty:
 		kdm_for_join = None
 	else:
-		kdm_for_join = kdm[[
+		kdm_for_join_cols = [
 			"id",
 			"sls_id",
 			"owner",
 			"user_id",
 			"project_id",
+			"name",
+			"address",
+			"regency_name",
+			"subdistrict_name",
+			"village_name",
+			"sls_name",
 			"type",
 			"__prefix10",
 			"__name_norm",
 			"__lat_key",
 			"__lon_key",
-		]].copy()
+		]
+		for col in kdm_for_join_cols:
+			if col not in kdm.columns:
+				kdm[col] = ""
+		kdm_for_join = kdm[kdm_for_join_cols].copy()
 
 	# 3) Second pass: stream SBR again, match, and append results
 	print("🔁 Matching & writing output in chunks...")
@@ -522,24 +555,14 @@ def main() -> None:
 			unmatched_kdm["__id_hash"] = unmatched_kdm["id"].fillna("").map(_as_str).str.strip().map(_hash64)
 			unmatched_kdm = unmatched_kdm[~unmatched_kdm["__id_hash"].isin(matched_source2_id_hashes)].copy()
 
-		# Keep relevant KDM source columns only
-		kdm_output_cols = [
-			"id",
-			"sls_id",
-			"owner",
-			"user_id",
-			"project_id",
-			"name",
-			"latitude",
-			"longitude",
-			"type",
-			"__source_file",
-		]
-		for col in kdm_output_cols:
+		# Keep columns identical to the main output's Source-2 projection
+		# (i.e., same names and order as SOURCE2_OUTPUT_COLUMNS).
+		unmatched_kdm = unmatched_kdm.rename(columns={"id": "idkendedes"})
+		for col in SOURCE2_OUTPUT_COLUMNS:
 			if col not in unmatched_kdm.columns:
 				unmatched_kdm[col] = ""
 
-		unmatched_kdm[kdm_output_cols].to_csv(
+		unmatched_kdm[SOURCE2_OUTPUT_COLUMNS].to_csv(
 			unmatched_kdm_output_path,
 			index=False,
 			encoding="utf-8",
