@@ -7,5 +7,6 @@ source_identify_sls/*
 source_geojson/*
 result/*
 gc_transform/*
+log/*
 .env
 __pycache__

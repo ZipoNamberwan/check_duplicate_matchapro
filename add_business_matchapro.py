@@ -1,6 +1,7 @@
 import requests
 import time
 import base64
+import os
 import pandas as pd
 from tqdm import tqdm
 from scraping_multithread.login import login_with_sso
@@ -41,8 +42,8 @@ BASE_PAYLOAD = data = {
     'desa': '',
     'latitude': '',
     'longitude': '',
-    'confirmSubmit': 'false',
-    'totalSimilar': '0',
+    'confirmSubmit': 'true',
+    'totalSimilar': '1',
 }
 
 # Sumber file input
@@ -54,9 +55,14 @@ PROVINSI_FIXED = "120"
 
 DELAY_BETWEEN_REQUEST = 1.3     # detik, jangan terlalu kecil
 MAX_RETRY_PER_ROW = 3
-DEBUG_NUMBER = 1  # 0 = proses semua baris, >0 = batasi jumlah baris untuk testing
+DEBUG_NUMBER = 10  # 0 = proses semua baris, >0 = batasi jumlah baris untuk testing
 PRINT_RESPONSE_RESULT = True
 PRINT_PAYLOAD_RESULT = True
+
+# Logging hasil sukses (tidak mengubah file sumber)
+LOG_DIR = "log"
+SUCCESS_LOG_FILE = "log/success_ids.csv"
+SUCCESS_ID_COLUMNS_CANDIDATES = ["idkendedes"]
 # ------------------------------------------------------
 
 def normalize_cell_value(value):
@@ -118,7 +124,16 @@ def build_payload_from_kdm_row(row, kab_map, kec_map, desa_map):
     sls7 = sls_id[:7]
     sls10 = sls_id[:10]
     nama_usaha_raw = build_nama_usaha(row.get("name", ""), row.get("owner", ""))
-    alamat_raw = "test"
+    alamat_raw = normalize_cell_value(row.get("address", ""))
+    if not alamat_raw:
+        kecamatan_name = normalize_cell_value(row.get("kecamatan_name", ""))
+        desa_name = normalize_cell_value(row.get("desa_name", ""))
+        sls_name = normalize_cell_value(row.get("sls_name", ""))
+        sls_name_formatted = f"'{sls_name}'" if sls_name else ""
+        alamat_parts = [part for part in [kecamatan_name, desa_name, sls_name_formatted] if part]
+        alamat_raw = ", ".join(alamat_parts)
+    if not alamat_raw:
+        alamat_raw = "jawa timur"
 
     payload = BASE_PAYLOAD.copy()
     payload["nama_usaha"] = b64_encode_unicode(nama_usaha_raw)
@@ -130,6 +145,58 @@ def build_payload_from_kdm_row(row, kab_map, kec_map, desa_map):
     payload["latitude"] = normalize_cell_value(row.get("latitude", ""))
     payload["longitude"] = normalize_cell_value(row.get("longitude", ""))
     return payload
+
+
+def extract_success_id(row, row_number: int) -> str:
+    for col in SUCCESS_ID_COLUMNS_CANDIDATES:
+        value = normalize_cell_value(row.get(col, ""))
+        if value:
+            return value
+
+    # Fallback jika tidak ada kolom id yang cocok
+    sls_id = normalize_cell_value(row.get("sls_id", ""))
+    name = normalize_cell_value(row.get("name", ""))
+    owner = normalize_cell_value(row.get("owner", ""))
+    composite = "|".join([part for part in [sls_id, name, owner] if part])
+    return composite or str(row_number)
+
+
+def append_success_log(success_id: str):
+    os.makedirs(LOG_DIR, exist_ok=True)
+    with open(SUCCESS_LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(f"{success_id}\n")
+        f.flush()
+
+
+def load_success_ids_from_log() -> set[str]:
+    if not os.path.exists(SUCCESS_LOG_FILE):
+        return set()
+
+    success_ids: set[str] = set()
+    try:
+        df_log = pd.read_csv(
+            SUCCESS_LOG_FILE,
+            header=None,
+            dtype=str,
+            keep_default_na=False,
+            na_filter=False,
+            on_bad_lines="skip",
+        )
+
+        if df_log.empty:
+            return set()
+
+        # Format baru: 1 kolom per baris (id)
+        # Format lama: 3 kolom (timestamp,row_number,success_id) -> id ada di kolom terakhir
+        ids = df_log.iloc[:, -1].astype(str).str.strip()
+        ids = ids[ids != ""]
+        ids = ids[ids.str.lower() != "success_id"]
+        success_ids = set(ids.tolist())
+    except Exception as e:
+        print(f"Peringatan: gagal membaca log sukses ({SUCCESS_LOG_FILE}): {e}")
+        return set()
+
+    return success_ids
 
 
 def post_with_retry(payload, cookies_dict, row_number):
@@ -234,10 +301,27 @@ def main():
     failed_rows = []
     skipped_rows = []
 
+    success_ids_logged = load_success_ids_from_log()
+    if success_ids_logged:
+        print(f"Resume aktif: {len(success_ids_logged):,} id sudah tercatat di log, akan dilewati")
+
     with tqdm(total=total_rows, desc="Insert Progress", unit="row") as pbar:
         for idx, row in df_source.iterrows():
             row_number = idx + 2  # +2 karena header csv di baris 1
             payload = build_payload_from_kdm_row(row, kab_map, kec_map, desa_map)
+
+            # Skip jika id sudah pernah berhasil diinsert pada run sebelumnya
+            current_id = extract_success_id(row, row_number)
+            if current_id in success_ids_logged:
+                skipped_rows.append({"row": row_number, "reason": "sudah ada di log sukses", "id": current_id})
+                pbar.update(1)
+                continue
+
+            deleted_at = normalize_cell_value(row.get("deleted_at", ""))
+            if deleted_at:
+                skipped_rows.append({"row": row_number, "reason": "deleted_at tidak kosong", "id": current_id})
+                pbar.update(1)
+                continue
 
             if not payload["nama_usaha"]:
                 skipped_rows.append({"row": row_number, "reason": "nama_usaha kosong"})
@@ -258,6 +342,9 @@ def main():
             ok, result = post_with_retry(payload, cookies_dict, row_number)
             if ok:
                 success_count += 1
+                success_id = current_id
+                append_success_log(success_id)
+                success_ids_logged.add(success_id)
                 if PRINT_RESPONSE_RESULT:
                     print(f"[OK] Baris {row_number} response: {result}")
             else:

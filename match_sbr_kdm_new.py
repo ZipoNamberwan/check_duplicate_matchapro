@@ -74,6 +74,9 @@ SOURCE2_OUTPUT_COLUMNS: List[str] = [
 	"subdistrict_name",
 	"village_name",
 	"sls_name",
+	"latitude",
+	"longitude",
+	"deleted_at",
 	"type",
 ]
 
@@ -104,6 +107,7 @@ SOURCE2_NEEDED_COLUMNS: List[str] = [
 	"sls_name",
 	"latitude",
 	"longitude",
+	"deleted_at",
 ]
 
 
@@ -287,6 +291,7 @@ def iter_source2_filtered(base_dir: str, prefixes10: Set[str]) -> Iterable[pd.Da
 				"sls_name",
 				"latitude",
 				"longitude",
+				"deleted_at",
 			]:
 				if col not in chunk.columns:
 					chunk[col] = ""
@@ -382,6 +387,7 @@ def main() -> None:
 			"subdistrict_name",
 			"village_name",
 			"sls_name",
+			"deleted_at",
 			"type",
 			"__prefix10",
 			"__name_norm",
